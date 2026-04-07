@@ -1,0 +1,821 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Animated,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import Svg, { Path } from "react-native-svg";
+import Constants from "expo-constants";
+import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
+import {
+  HelperText,
+  SegmentedButtons,
+  Surface,
+  Text,
+  TextInput,
+} from "react-native-paper";
+import ButtonCustom from "../components/ButtonCustom";
+import { useAuth } from "../hooks/useAuth";
+import { Colors } from "../constants/Colors";
+
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const phoneRegex = /^[0-9+\s()-]{7,20}$/;
+
+const previewSlides = [
+  {
+    title: "Gastos del mes",
+    amount: "$ 2.450.000",
+    rows: [
+      { label: "Hogar", value: "38%" },
+      { label: "Transporte", value: "21%" },
+    ],
+    bars: [34, 56, 72, 44],
+  },
+  {
+    title: "Ingresos vs ahorro",
+    amount: "$ 1.180.000",
+    rows: [
+      { label: "Ahorro", value: "29%" },
+      { label: "Inversión", value: "17%" },
+    ],
+    bars: [48, 36, 68, 78],
+  },
+  {
+    title: "Resumen semanal",
+    amount: "$ 620.000",
+    rows: [
+      { label: "Comida", value: "26%" },
+      { label: "Salud", value: "14%" },
+    ],
+    bars: [26, 64, 42, 58],
+  },
+  {
+    title: "Flujo trimestral",
+    amount: "$ 4.860.000",
+    rows: [
+      { label: "Ingresos", value: "61%" },
+      { label: "Metas", value: "24%" },
+    ],
+    bars: [38, 74, 52, 82],
+  },
+  {
+    title: "Balance proyectado",
+    amount: "$ 3.120.000",
+    rows: [
+      { label: "Ahorro", value: "33%" },
+      { label: "Libre", value: "19%" },
+    ],
+    bars: [62, 46, 78, 58],
+  },
+];
+
+WebBrowser.maybeCompleteAuthSession();
+
+export default function LoginScreen() {
+  const { signIn, signInWithGoogle, signUp } = useAuth();
+  const { width } = useWindowDimensions();
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const previewOpacity = useRef(new Animated.Value(1)).current;
+  const previewRotate = useRef(new Animated.Value(0)).current;
+  const previewTranslate = useRef(new Animated.Value(0)).current;
+
+  const isCompact = width < 640;
+  const isLargeScreen = width >= 980;
+  const cardWidth = useMemo(() => Math.min(width - 32, 560), [width]);
+  const googleConfig = Constants.expoConfig?.extra as
+    | {
+        googleWebClientId?: string;
+        googleIosClientId?: string;
+        googleAndroidClientId?: string;
+      }
+    | undefined;
+  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
+    clientId: googleConfig?.googleWebClientId,
+    webClientId: googleConfig?.googleWebClientId,
+    iosClientId: googleConfig?.googleIosClientId,
+    androidClientId: googleConfig?.googleAndroidClientId,
+  });
+  const activePreview = previewSlides[previewIndex];
+
+  const animatePreviewChange = (nextIndex: number) => {
+    Animated.parallel([
+      Animated.timing(previewOpacity, {
+        toValue: 0.05,
+        duration: 260,
+        useNativeDriver: true,
+      }),
+      Animated.timing(previewRotate, {
+        toValue: 1,
+        duration: 260,
+        useNativeDriver: true,
+      }),
+      Animated.timing(previewTranslate, {
+        toValue: -28,
+        duration: 260,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setPreviewIndex(nextIndex);
+      previewRotate.setValue(-1);
+      previewTranslate.setValue(28);
+
+      Animated.parallel([
+        Animated.timing(previewOpacity, {
+          toValue: 1,
+          duration: 420,
+          useNativeDriver: true,
+        }),
+        Animated.timing(previewRotate, {
+          toValue: 0,
+          duration: 420,
+          useNativeDriver: true,
+        }),
+        Animated.timing(previewTranslate, {
+          toValue: 0,
+          duration: 420,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+  };
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      animatePreviewChange((previewIndex + 1) % previewSlides.length);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [previewIndex, previewOpacity, previewRotate, previewTranslate]);
+
+  React.useEffect(() => {
+    const processGoogleResponse = async () => {
+      if (response?.type !== "success") {
+        return;
+      }
+
+      const idToken = response.params?.id_token;
+      if (!idToken) {
+        setError("Google no devolvió un token válido.");
+        return;
+      }
+
+      try {
+        setGoogleLoading(true);
+        setError("");
+        await signInWithGoogle(idToken);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No fue posible ingresar con Google."
+        );
+      } finally {
+        setGoogleLoading(false);
+      }
+    };
+
+    processGoogleResponse();
+  }, [response, signInWithGoogle]);
+
+  const handleSubmit = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      setError("El email es obligatorio.");
+      return;
+    }
+
+    if (!emailRegex.test(normalizedEmail)) {
+      setError("Ingresa un email válido.");
+      return;
+    }
+
+    if (mode === "register") {
+      if (!firstName.trim()) {
+        setError("Los nombres son obligatorios.");
+        return;
+      }
+
+      if (!lastName.trim()) {
+        setError("Los apellidos son obligatorios.");
+        return;
+      }
+
+      if (!phone.trim()) {
+        setError("El teléfono es obligatorio.");
+        return;
+      }
+
+      if (!phoneRegex.test(phone.trim())) {
+        setError("Ingresa un teléfono válido.");
+        return;
+      }
+
+      if (password.length < 6) {
+        setError("La contraseña debe tener al menos 6 caracteres.");
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        setError("Las contraseñas no coinciden.");
+        return;
+      }
+    }
+
+    if (mode === "login" && !password) {
+      setError("La contraseña es obligatoria.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+      if (mode === "login") {
+        await signIn({ email: normalizedEmail, password });
+      } else {
+        await signUp({
+          firstName,
+          lastName,
+          phone,
+          email: normalizedEmail,
+          password,
+        });
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "No fue posible procesar la autenticación.";
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleAccess = async () => {
+    const webClientId = googleConfig?.googleWebClientId;
+    if (!webClientId || webClientId.startsWith("REPLACE_WITH_")) {
+      setError("Falta configurar el Google Web Client ID para habilitar este acceso.");
+      return;
+    }
+
+    try {
+      setError("");
+      setGoogleLoading(true);
+      await promptAsync();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No fue posible abrir Google."
+      );
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleSelectPreview = (index: number) => {
+    if (index === previewIndex) {
+      return;
+    }
+
+    animatePreviewChange(index);
+  };
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={styles.container}
+    >
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          isLargeScreen ? styles.scrollContentLarge : null,
+          isCompact ? styles.scrollContentCompact : null,
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View
+          style={[
+            styles.heroPanel,
+            isLargeScreen ? styles.heroPanelLarge : null,
+            isCompact ? styles.heroPanelCompact : null,
+          ]}
+        >
+          <View style={styles.brandBadge}>
+            <Text style={styles.brandBadgeText}>EF</Text>
+          </View>
+          <Text variant="headlineMedium" style={styles.title}>
+            Gestiona tus finanzas de manera inteligente
+          </Text>
+          <Text variant="bodyLarge" style={styles.subtitle}>
+            Administra tus finanzas, crea categorías y analiza tu comportamiento
+            con IA.
+          </Text>
+
+          <Animated.View
+            style={[
+              styles.previewCard,
+              {
+                opacity: previewOpacity,
+                transform: [
+                  {
+                    rotateY: previewRotate.interpolate({
+                      inputRange: [-1, 0, 1],
+                      outputRange: ["-24deg", "0deg", "24deg"],
+                    }),
+                  },
+                  {
+                    translateX: previewTranslate,
+                  },
+                  {
+                    scale: previewOpacity.interpolate({
+                      inputRange: [0.15, 1],
+                      outputRange: [0.96, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.previewPhone}>
+              <View style={styles.previewTopBar}>
+                <Text style={styles.previewAppName}>EcoFinance</Text>
+                <View style={styles.previewDot} />
+              </View>
+              <View style={styles.previewChart}>
+                {activePreview.bars.map((height, index) => (
+                  <View key={`${previewIndex}-${index}`} style={[styles.previewBar, { height }]} />
+                ))}
+              </View>
+              <View style={styles.previewExpenseCard}>
+                <Text style={styles.previewExpenseTitle}>{activePreview.title}</Text>
+                <Text style={styles.previewExpenseAmount}>{activePreview.amount}</Text>
+                {activePreview.rows.map((row) => (
+                  <View key={`${previewIndex}-${row.label}`} style={styles.previewExpenseRow}>
+                    <Text style={styles.previewExpenseLabel}>{row.label}</Text>
+                    <Text style={styles.previewExpenseValue}>{row.value}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.previewNotes}>
+              <View style={styles.previewMiniCard}>
+                <Text style={styles.previewMiniTitle}>Control diario</Text>
+                <Text style={styles.previewMiniText}>
+                  Registra movimientos y categorías en segundos.
+                </Text>
+              </View>
+              <View style={styles.previewMiniCard}>
+                <Text style={styles.previewMiniTitle}>Panel claro</Text>
+                <Text style={styles.previewMiniText}>
+                  Visualiza tu progreso desde cualquier dispositivo.
+                </Text>
+              </View>
+              <View style={styles.previewIndicators}>
+                {previewSlides.map((_, index) => (
+                  <TouchableOpacity
+                    key={`indicator-${index}`}
+                    activeOpacity={0.85}
+                    onPress={() => handleSelectPreview(index)}
+                    style={styles.previewIndicatorButton}
+                  >
+                    <View
+                      style={[
+                        styles.previewIndicator,
+                        index === previewIndex ? styles.previewIndicatorActive : null,
+                      ]}
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </Animated.View>
+        </View>
+
+        <Surface style={[styles.card, { width: cardWidth }]} elevation={2}>
+          <Text variant="titleLarge" style={styles.cardTitle}>
+            {mode === "login" ? "Bienvenido de nuevo" : "Crea tu cuenta"}
+          </Text>
+          <Text style={styles.cardSubtitle}>
+            {mode === "login"
+              ? "Ingresa con tu cuenta o continúa directamente con Google."
+              : "Completa tus datos para registrarte y empieza a organizar tus finanzas."}
+          </Text>
+
+          <SegmentedButtons
+            value={mode}
+            onValueChange={(value) => {
+              setMode(value as "login" | "register");
+              setError("");
+            }}
+            buttons={[
+              { value: "login", label: "Login" },
+              { value: "register", label: "Registro" },
+            ]}
+            style={styles.segmented}
+          />
+
+          {mode === "register" ? (
+            <View style={[styles.row, isCompact ? styles.rowCompact : null]}>
+              <TextInput
+                mode="outlined"
+                label="Nombres"
+                value={firstName}
+                onChangeText={setFirstName}
+                style={[styles.input, styles.halfInput]}
+              />
+              <TextInput
+                mode="outlined"
+                label="Apellidos"
+                value={lastName}
+                onChangeText={setLastName}
+                style={[styles.input, styles.halfInput]}
+              />
+            </View>
+          ) : null}
+
+          {mode === "register" ? (
+            <TextInput
+              mode="outlined"
+              label="Teléfono"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              style={styles.input}
+            />
+          ) : null}
+
+          <TextInput
+            mode="outlined"
+            label={mode === "register" ? "Correo electrónico" : "Correo registrado"}
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            style={styles.input}
+          />
+
+          <TextInput
+            mode="outlined"
+            label="Contraseña"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            style={styles.input}
+          />
+
+          {mode === "register" ? (
+            <TextInput
+              mode="outlined"
+              label="Confirmar contraseña"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry
+              style={styles.input}
+            />
+          ) : null}
+
+          <HelperText type="info" visible>
+            {mode === "login"
+              ? "Inicia sesión con correo y contraseña, o usa el acceso directo con Google."
+              : "Registra tu cuenta con correo, teléfono y contraseña."}
+          </HelperText>
+
+          <HelperText type="error" visible={Boolean(error)}>
+            {error}
+          </HelperText>
+
+          <GoogleButton
+            label={mode === "login" ? "Continuar con Google" : "Registrarme con Google"}
+            onPress={handleGoogleAccess}
+            loading={googleLoading}
+            disabled={!request}
+          />
+
+          <View style={styles.buttonSpacer} />
+
+          <ButtonCustom
+            label={mode === "login" ? "Entrar" : "Crear cuenta"}
+            onPress={handleSubmit}
+            loading={loading}
+            icon={mode === "login" ? "login" : "account-plus"}
+          />
+        </Surface>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+function GoogleButton({
+  label,
+  onPress,
+  loading,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  loading?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.88}
+      onPress={onPress}
+      disabled={disabled || loading}
+      style={[
+        styles.googleButton,
+        disabled ? styles.googleButtonDisabled : null,
+      ]}
+    >
+      <View style={styles.googleContent}>
+        <GoogleMark />
+        <Text style={styles.googleButtonText}>{label}</Text>
+      </View>
+
+      {loading ? <ActivityIndicator size="small" color={Colors.primary} /> : null}
+    </TouchableOpacity>
+  );
+}
+
+function GoogleMark() {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.44a5.5 5.5 0 0 1-2.39 3.61v3h3.88c2.27-2.09 3.56-5.18 3.56-8.64Z"
+      />
+      <Path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.96-1.07 7.95-2.9l-3.88-3c-1.08.73-2.46 1.17-4.07 1.17-3.13 0-5.78-2.12-6.73-4.96H1.26v3.09A12 12 0 0 0 12 24Z"
+      />
+      <Path
+        fill="#FBBC05"
+        d="M5.27 14.31A7.2 7.2 0 0 1 4.89 12c0-.8.14-1.58.38-2.31V6.6H1.26A12 12 0 0 0 0 12c0 1.94.46 3.77 1.26 5.4l4.01-3.09Z"
+      />
+      <Path
+        fill="#EA4335"
+        d="M12 4.77c1.76 0 3.35.61 4.6 1.8l3.45-3.45C17.95 1.16 15.23 0 12 0A12 12 0 0 0 1.26 6.6l4.01 3.09c.95-2.84 3.6-4.92 6.73-4.92Z"
+      />
+    </Svg>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 28,
+    gap: 18,
+  },
+  scrollContentCompact: {
+    paddingHorizontal: 12,
+    paddingVertical: 20,
+  },
+  scrollContentLarge: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 22,
+  },
+  heroPanel: {
+    width: "100%",
+    maxWidth: 560,
+    backgroundColor: Colors.primary,
+    borderRadius: 28,
+    padding: 24,
+    minHeight: 240,
+    overflow: "hidden",
+  },
+  heroPanelLarge: {
+    flex: 1,
+    maxWidth: 520,
+    justifyContent: "space-between",
+  },
+  heroPanelCompact: {
+    padding: 18,
+    borderRadius: 24,
+  },
+  brandBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+  brandBadgeText: {
+    color: Colors.surface,
+    fontSize: 22,
+    fontWeight: "700",
+  },
+  title: {
+    color: Colors.surface,
+    fontWeight: "800",
+    marginBottom: 10,
+    lineHeight: 38,
+  },
+  subtitle: {
+    color: "#E7F6ED",
+    lineHeight: 24,
+    marginBottom: 18,
+  },
+  previewCard: {
+    marginTop: 8,
+    backgroundColor: "rgba(255,255,255,0.09)",
+    borderRadius: 24,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  previewPhone: {
+    backgroundColor: "#F7FBF8",
+    borderRadius: 24,
+    padding: 14,
+    marginBottom: 12,
+  },
+  previewTopBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  previewAppName: {
+    color: Colors.textPrimary,
+    fontWeight: "800",
+    fontSize: 15,
+  },
+  previewDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: Colors.success,
+  },
+  previewChart: {
+    height: 88,
+    borderRadius: 18,
+    backgroundColor: "#EAF2FB",
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
+    marginBottom: 12,
+  },
+  previewBar: {
+    flex: 1,
+    backgroundColor: Colors.secondary,
+    borderRadius: 10,
+  },
+  previewExpenseCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 18,
+    padding: 14,
+  },
+  previewExpenseTitle: {
+    color: Colors.textSecondary,
+    marginBottom: 4,
+  },
+  previewExpenseAmount: {
+    color: Colors.textPrimary,
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 10,
+  },
+  previewExpenseRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 6,
+  },
+  previewExpenseLabel: {
+    color: Colors.textSecondary,
+  },
+  previewExpenseValue: {
+    color: Colors.primary,
+    fontWeight: "700",
+  },
+  previewNotes: {
+    gap: 10,
+  },
+  previewMiniCard: {
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: 18,
+    padding: 14,
+  },
+  previewMiniTitle: {
+    color: Colors.surface,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  previewMiniText: {
+    color: "#E4F4EB",
+    lineHeight: 20,
+  },
+  previewIndicators: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 2,
+  },
+  previewIndicatorButton: {
+    paddingVertical: 4,
+    paddingRight: 2,
+  },
+  previewIndicator: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.22)",
+  },
+  previewIndicatorActive: {
+    width: 26,
+    backgroundColor: "#FFFFFF",
+  },
+  card: {
+    backgroundColor: Colors.surface,
+    padding: 22,
+    borderRadius: 28,
+    maxWidth: 560,
+    shadowColor: "#163A2B",
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+  cardTitle: {
+    color: Colors.textPrimary,
+    marginBottom: 6,
+    fontWeight: "800",
+  },
+  cardSubtitle: {
+    color: Colors.textSecondary,
+    lineHeight: 21,
+    marginBottom: 16,
+  },
+  segmented: {
+    marginBottom: 16,
+  },
+  row: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  rowCompact: {
+    flexDirection: "column",
+    gap: 0,
+  },
+  input: {
+    marginBottom: 12,
+    backgroundColor: Colors.surface,
+  },
+  buttonSpacer: {
+    height: 10,
+  },
+  googleButton: {
+    minHeight: 50,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#DADCE0",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  googleButtonDisabled: {
+    opacity: 0.6,
+  },
+  googleButtonText: {
+    color: "#3C4043",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  googleContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  halfInput: {
+    flex: 1,
+  },
+});
