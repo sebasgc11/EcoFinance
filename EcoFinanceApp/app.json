@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "EcoFinanceApp",
+    "slug": "EcoFinanceApp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "ecofinanceapp",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permite usar la cámara para tomar tu foto de perfil en EcoFinance."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permite seleccionar una foto para tu perfil en EcoFinance.",
+          "cameraPermission": "Permite tomar una foto para tu perfil en EcoFinance."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "googleWebClientId": "REPLACE_WITH_GOOGLE_WEB_CLIENT_ID",
+      "googleIosClientId": "REPLACE_WITH_GOOGLE_IOS_CLIENT_ID",
+      "googleAndroidClientId": "REPLACE_WITH_GOOGLE_ANDROID_CLIENT_ID",
+      "googleConfigSource": "C:/Users/sebas/OneDrive/Documentos/Proyecto_IA_Septimo_Semestre/.env"
+    }
+  }
+}

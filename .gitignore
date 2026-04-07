@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+
+EcoFinanceApp/node_modules/
+EcoFinanceApp/.expo/
+EcoFinanceApp/dist/
+
+.DS_Store
+Thumbs.db
+
+*.log
