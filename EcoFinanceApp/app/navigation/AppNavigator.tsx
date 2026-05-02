@@ -47,7 +47,7 @@ export default function AppNavigator() {
           <Stack.Screen
             name="Home"
             component={HomeScreen}
-            options={{ title: "EcoFinance" }}
+            options={{ title: "EcoFinance Intelligence" }}
           />
           <Stack.Screen
             name="Expense"
@@ -57,7 +57,7 @@ export default function AppNavigator() {
           <Stack.Screen
             name="ML"
             component={MLScreen}
-            options={{ title: "Clustering de usuarios" }}
+            options={{ title: "EcoFinance Intelligence" }}
           />
           <Stack.Screen
             name="Profile"

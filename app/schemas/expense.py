@@ -7,6 +7,8 @@ class ExpenseCreate(BaseModel):
     date: date
     amount: float
     movement_type: str = "expense"
+    expected_return_rate: float | None = None
+    expected_return_frequency: str | None = None
     description: str | None = None
 
 class ExpenseOut(BaseModel):
@@ -17,4 +19,6 @@ class ExpenseOut(BaseModel):
     date: date
     amount: float
     movement_type: str
+    expected_return_rate: float | None = None
+    expected_return_frequency: str | None = None
     description: str | None = None

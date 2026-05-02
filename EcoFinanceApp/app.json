@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "EcoFinanceApp",
+    "name": "EcoFinance Intelligence",
     "slug": "EcoFinanceApp",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -28,14 +28,14 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Permite usar la cámara para tomar tu foto de perfil en EcoFinance."
+          "cameraPermission": "Permite usar la cámara para tomar tu foto de perfil en EcoFinance Intelligence."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Permite seleccionar una foto para tu perfil en EcoFinance.",
-          "cameraPermission": "Permite tomar una foto para tu perfil en EcoFinance."
+          "photosPermission": "Permite seleccionar una foto para tu perfil en EcoFinance Intelligence.",
+          "cameraPermission": "Permite tomar una foto para tu perfil en EcoFinance Intelligence."
         }
       ],
       [

@@ -428,7 +428,7 @@ export default function LoginScreen() {
           >
             <View style={styles.previewPhone}>
               <View style={styles.previewTopBar}>
-                <Text style={styles.previewAppName}>EcoFinance</Text>
+                <Text style={styles.previewAppName}>EcoFinance Intelligence</Text>
                 <View style={styles.previewDot} />
               </View>
               <View style={styles.previewChart}>
@@ -513,6 +513,7 @@ export default function LoginScreen() {
                 value={firstName}
                 onChangeText={setFirstName}
                 style={[styles.input, styles.halfInput]}
+                returnKeyType="next"
               />
               <TextInput
                 mode="outlined"
@@ -520,6 +521,7 @@ export default function LoginScreen() {
                 value={lastName}
                 onChangeText={setLastName}
                 style={[styles.input, styles.halfInput]}
+                returnKeyType="next"
               />
             </View>
           ) : null}
@@ -532,6 +534,7 @@ export default function LoginScreen() {
               onChangeText={setPhone}
               keyboardType="phone-pad"
               style={styles.input}
+              returnKeyType="next"
             />
           ) : null}
 
@@ -543,6 +546,7 @@ export default function LoginScreen() {
             keyboardType="email-address"
             autoCapitalize="none"
             style={styles.input}
+            returnKeyType="next"
           />
 
           <TextInput
@@ -552,6 +556,12 @@ export default function LoginScreen() {
             onChangeText={setPassword}
             secureTextEntry
             style={styles.input}
+            returnKeyType={mode === "register" ? "next" : "go"}
+            onSubmitEditing={() => {
+              if (mode === "login") {
+                void handleSubmit();
+              }
+            }}
           />
 
           {mode === "register" ? (
@@ -562,6 +572,8 @@ export default function LoginScreen() {
               onChangeText={setConfirmPassword}
               secureTextEntry
               style={styles.input}
+              returnKeyType="go"
+              onSubmitEditing={() => void handleSubmit()}
             />
           ) : null}
 
@@ -633,6 +645,7 @@ export default function LoginScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
               style={styles.input}
+              returnKeyType="next"
             />
 
             <View style={styles.resetActionGap}>
@@ -651,6 +664,7 @@ export default function LoginScreen() {
               onChangeText={setResetPassword}
               secureTextEntry
               style={styles.input}
+              returnKeyType="next"
             />
             <TextInput
               mode="outlined"
@@ -659,6 +673,8 @@ export default function LoginScreen() {
               onChangeText={setResetConfirmPassword}
               secureTextEntry
               style={styles.input}
+              returnKeyType="go"
+              onSubmitEditing={() => void handleConfirmReset()}
             />
 
             <HelperText type="info" visible={Boolean(resetMessage)}>

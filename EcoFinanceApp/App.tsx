@@ -1,6 +1,5 @@
 import "react-native-gesture-handler";
 import React from "react";
-import { StyleSheet } from "react-native";
 import { NavigationContainer, DefaultTheme as NavigationTheme } from "@react-navigation/native";
 import { Provider as PaperProvider, MD3LightTheme } from "react-native-paper";
 import { StatusBar } from "expo-status-bar";
@@ -10,6 +9,8 @@ import AppNavigator from "./app/navigation/AppNavigator";
 import { AuthProvider } from "./app/hooks/useAuth";
 import { CurrencyProvider } from "./app/hooks/useCurrency";
 import { Colors } from "./app/constants/Colors";
+
+const rootStyle = { flex: 1 } as const;
 
 const paperTheme = {
   ...MD3LightTheme,
@@ -40,7 +41,7 @@ const navigationTheme = {
 
 export default function App() {
   return (
-    <GestureHandlerRootView style={styles.container}>
+    <GestureHandlerRootView style={rootStyle}>
       <SafeAreaProvider>
         <PaperProvider theme={paperTheme}>
           <AuthProvider>
@@ -56,9 +57,3 @@ export default function App() {
     </GestureHandlerRootView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-});

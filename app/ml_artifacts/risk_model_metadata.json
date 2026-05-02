@@ -1,0 +1,26 @@
+{
+  "version": "20260417000115",
+  "trained_at": "2026-04-17T00:03:19Z",
+  "train_baseline": {
+    "feature_cols": [
+      "expense",
+      "income",
+      "investment",
+      "tx_count",
+      "avg_amount",
+      "outflow",
+      "spend_income_ratio",
+      "net_balance"
+    ],
+    "feature_means": {
+      "expense": 1306.8693378692053,
+      "income": 1640.351532496804,
+      "investment": 134.51306869407256,
+      "tx_count": 15.640861535356255,
+      "avg_amount": 209.81109213912367,
+      "outflow": 1441.382406563278,
+      "spend_income_ratio": 0.8721304022736954,
+      "net_balance": 198.96912593352624
+    }
+  }
+}

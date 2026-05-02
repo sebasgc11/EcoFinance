@@ -20,6 +20,34 @@ const movementTypes = [
   { value: "income", label: "Ingreso adicional" },
   { value: "investment", label: "Inversión" },
 ] as const;
+const investmentReturnOptions = [
+  { value: "monthly", label: "Mensual" },
+  { value: "annual", label: "Anual" },
+] as const;
+
+const calculateProjectedReturn = (
+  investmentAmount: number,
+  ratePercent: number
+) => (investmentAmount > 0 && ratePercent > 0 ? investmentAmount * (ratePercent / 100) : 0);
+
+const normalizeAmountInput = (value: string) => value.replace(/\D/g, "");
+
+const formatAmountInput = (value: string) => {
+  const digits = normalizeAmountInput(value);
+
+  if (!digits) {
+    return "";
+  }
+
+  return new Intl.NumberFormat("es-CO", {
+    maximumFractionDigits: 0,
+  }).format(Number(digits));
+};
+
+const parseAmountInput = (value: string) => {
+  const digits = normalizeAmountInput(value);
+  return digits ? Number(digits) : NaN;
+};
 
 export default function ExpenseScreen() {
   const { width } = useWindowDimensions();
@@ -34,6 +62,9 @@ export default function ExpenseScreen() {
     useState<(typeof movementTypes)[number]["value"]>("expense");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
+  const [expectedReturnRate, setExpectedReturnRate] = useState("");
+  const [expectedReturnFrequency, setExpectedReturnFrequency] =
+    useState<(typeof investmentReturnOptions)[number]["value"]>("monthly");
   const [date, setDate] = useState(formatDate(new Date()));
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [error, setError] = useState("");
@@ -46,10 +77,30 @@ export default function ExpenseScreen() {
   const [categoryMenuVisible, setCategoryMenuVisible] = useState(false);
   const [currencyMenuVisible, setCurrencyMenuVisible] = useState(false);
   const [movementMenuVisible, setMovementMenuVisible] = useState(false);
+  const [returnFrequencyMenuVisible, setReturnFrequencyMenuVisible] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const isCompact = width < 640;
   const isLargeScreen = width >= 980;
+
+  const handleAmountChange = (value: string) => {
+    setAmount(formatAmountInput(value));
+    if (error) {
+      setError("");
+    }
+  };
+
+  const resetForm = () => {
+    setAmount("");
+    setDescription("");
+    setExpectedReturnRate("");
+    setExpectedReturnFrequency("monthly");
+    setSelectedCategory(null);
+    setMovementType("expense");
+    const currentDate = new Date();
+    setSelectedDate(currentDate);
+    setDate(formatDate(currentDate));
+  };
 
   useEffect(() => {
     const loadOptions = async () => {
@@ -87,12 +138,21 @@ export default function ExpenseScreen() {
       return "Selecciona una categoria.";
     }
 
-    if (!amount || Number.isNaN(Number(amount)) || Number(amount) <= 0) {
+    const parsedAmount = parseAmountInput(amount);
+
+    if (!amount || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
       return "Ingresa un monto valido mayor que cero.";
     }
 
     if (!description.trim()) {
       return "La descripcion es obligatoria.";
+    }
+
+    if (movementType === "investment" && expectedReturnRate) {
+      const parsedRate = Number(expectedReturnRate);
+      if (Number.isNaN(parsedRate) || parsedRate < 0) {
+        return "Ingresa un porcentaje de rentabilidad valido.";
+      }
     }
 
     return "";
@@ -113,18 +173,19 @@ export default function ExpenseScreen() {
       await expenseService.createExpense({
         user_id: selectedUser!.id,
         category_id: selectedCategory!.id,
-        amount: Number(amount),
+        amount: parseAmountInput(amount),
         movement_type: movementType,
+        expected_return_rate:
+          movementType === "investment" && expectedReturnRate
+            ? Number(expectedReturnRate)
+            : null,
+        expected_return_frequency:
+          movementType === "investment" ? expectedReturnFrequency : null,
         description: description.trim(),
         date,
       });
 
-      setAmount("");
-      setDescription("");
-      setSelectedCategory(null);
-      setMovementType("expense");
-      setSelectedDate(new Date());
-      setDate(formatDate(new Date()));
+      resetForm();
       Alert.alert("Exito", "El movimiento fue creado correctamente.");
     } catch (err) {
       setError(
@@ -176,7 +237,52 @@ export default function ExpenseScreen() {
 
   const customCategories = categories.filter((item) => !item.is_default);
 
+  const performDeleteCategory = async (category: Category) => {
+    const previousCategories = categories;
+    try {
+      setDeletingCategoryId(category.id);
+      setCategoryError("");
+      await categoryService.deleteCategory(category.id);
+      setCategories((current) =>
+        current.filter((item) => item.id !== category.id)
+      );
+      try {
+        const refreshed = await categoryService.getCategories();
+        setCategories(refreshed);
+      } catch {
+        // Keep local state if refresh fails.
+      }
+      if (selectedCategory?.id === category.id) {
+        setSelectedCategory(null);
+      }
+      if (Platform.OS !== "web") {
+        Alert.alert("Exito", "La categoria fue eliminada.");
+      }
+    } catch (err) {
+      setCategories(previousCategories);
+      const message =
+        err instanceof Error
+          ? err.message
+          : "No fue posible eliminar la categoría.";
+      setCategoryError(message);
+      Alert.alert("Error", message);
+    } finally {
+      setDeletingCategoryId(null);
+    }
+  };
+
   const handleDeleteCategory = (category: Category) => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const accepted = window.confirm(
+        `¿Deseas eliminar "${category.name}"?`
+      );
+      if (!accepted) {
+        return;
+      }
+      void performDeleteCategory(category);
+      return;
+    }
+
     Alert.alert(
       "Eliminar categoría",
       `¿Deseas eliminar "${category.name}"?`,
@@ -185,27 +291,7 @@ export default function ExpenseScreen() {
         {
           text: "Eliminar",
           style: "destructive",
-          onPress: async () => {
-            try {
-              setDeletingCategoryId(category.id);
-              setCategoryError("");
-              await categoryService.deleteCategory(category.id);
-              setCategories((current) =>
-                current.filter((item) => item.id !== category.id)
-              );
-              if (selectedCategory?.id === category.id) {
-                setSelectedCategory(null);
-              }
-            } catch (err) {
-              setCategoryError(
-                err instanceof Error
-                  ? err.message
-                  : "No fue posible eliminar la categoría."
-              );
-            } finally {
-              setDeletingCategoryId(null);
-            }
-          },
+          onPress: () => void performDeleteCategory(category),
         },
       ]
     );
@@ -223,6 +309,15 @@ export default function ExpenseScreen() {
     setSelectedDate(value);
     setDate(formatDate(value));
   };
+
+  const amountValue = parseAmountInput(amount);
+  const returnRateValue = Number(expectedReturnRate);
+  const projectedReturn =
+    movementType === "investment" &&
+    !Number.isNaN(amountValue) &&
+    !Number.isNaN(returnRateValue)
+      ? calculateProjectedReturn(amountValue, returnRateValue)
+      : 0;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -396,6 +491,8 @@ export default function ExpenseScreen() {
               }
             }}
             style={styles.input}
+            returnKeyType="done"
+            onSubmitEditing={() => void handleCreateCategory()}
           />
           <HelperText type="error" visible={Boolean(categoryError)}>
             {categoryError}
@@ -435,9 +532,10 @@ export default function ExpenseScreen() {
               mode="outlined"
               label={`Monto en ${currency.code}`}
               value={amount}
-              onChangeText={setAmount}
-              keyboardType="decimal-pad"
+              onChangeText={handleAmountChange}
+              keyboardType="number-pad"
               style={styles.input}
+              returnKeyType="next"
             />
 
             <TextInput
@@ -452,7 +550,60 @@ export default function ExpenseScreen() {
               value={description}
               onChangeText={setDescription}
               style={styles.input}
+              returnKeyType={movementType === "investment" ? "next" : "done"}
+              onSubmitEditing={() => {
+                if (movementType !== "investment") {
+                  void handleSubmit();
+                }
+              }}
             />
+
+            {movementType === "investment" ? (
+              <>
+                <TextInput
+                  mode="outlined"
+                  label="Rentabilidad esperada %"
+                  value={expectedReturnRate}
+                  onChangeText={setExpectedReturnRate}
+                  keyboardType="decimal-pad"
+                  style={styles.input}
+                  returnKeyType="done"
+                  onSubmitEditing={() => void handleSubmit()}
+                />
+
+                <Menu
+                  visible={returnFrequencyMenuVisible}
+                  onDismiss={() => setReturnFrequencyMenuVisible(false)}
+                  anchor={
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => setReturnFrequencyMenuVisible(true)}
+                      style={styles.selector}
+                    >
+                      <Text style={styles.selectorLabel}>Periodo de retorno</Text>
+                      <Text style={styles.selectorValue}>
+                        {
+                          investmentReturnOptions.find(
+                            (item) => item.value === expectedReturnFrequency
+                          )?.label
+                        }
+                      </Text>
+                    </TouchableOpacity>
+                  }
+                >
+                  {investmentReturnOptions.map((item) => (
+                    <Menu.Item
+                      key={item.value}
+                      title={item.label}
+                      onPress={() => {
+                        setExpectedReturnFrequency(item.value);
+                        setReturnFrequencyMenuVisible(false);
+                      }}
+                    />
+                  ))}
+                </Menu>
+              </>
+            ) : null}
           </View>
 
           <View style={isLargeScreen ? styles.formColumn : null}>
@@ -480,7 +631,11 @@ export default function ExpenseScreen() {
           {movementType === "expense"
             ? `Los gastos restan de tu disponible. Registra el valor en ${currency.code}. Ejemplo: ${formatCurrency(125000)}.`
             : movementType === "investment"
-              ? `Las inversiones se separan de los gastos, pero sí reducen el efectivo disponible. Ejemplo: ${formatCurrency(125000)}.`
+              ? `Las inversiones sí reducen el efectivo disponible, pero siguen contando como dinero puesto a crecer. ${
+                  projectedReturn > 0
+                    ? `Con esta configuración la ganancia estimada sería ${formatCurrency(projectedReturn)} por ${expectedReturnFrequency === "monthly" ? "mes" : "año"}.`
+                    : `Si agregas un porcentaje, la app calculará cuánto podrías ganar por ${expectedReturnFrequency === "monthly" ? "mes" : "año"}.`
+                }`
               : `Los ingresos adicionales compensan tus gastos y aumentan tu balance. Ejemplo: ${formatCurrency(125000)}.`}
         </HelperText>
 

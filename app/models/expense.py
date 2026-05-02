@@ -11,4 +11,6 @@ class Expense(Base):
     date = Column(Date, nullable=False)
     amount = Column(Float, nullable=False)
     movement_type = Column(String(20), nullable=False, default="expense")
+    expected_return_rate = Column(Float, nullable=True)
+    expected_return_frequency = Column(String(20), nullable=True)
     description = Column(String(200), nullable=True)

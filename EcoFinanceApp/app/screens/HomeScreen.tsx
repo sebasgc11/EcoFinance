@@ -13,14 +13,27 @@ import {
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { BarChart } from "react-native-chart-kit";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Avatar, Card, Chip, Divider, Menu, Text } from "react-native-paper";
+import {
+  ActivityIndicator,
+  Avatar,
+  Card,
+  Chip,
+  Divider,
+  Menu,
+  Text,
+  TextInput,
+} from "react-native-paper";
 import ButtonCustom from "../components/ButtonCustom";
 import ExpenseCard from "../components/ExpenseCard";
+import {
+  QuickDockButton,
+  SidebarItem,
+  SurfaceStat,
+} from "../components/HomeScreenParts";
 import { Colors } from "../constants/Colors";
 import { useAuth } from "../hooks/useAuth";
 import { currencyOptions, useCurrency } from "../hooks/useCurrency";
-import { expenseService, Expense, User, userService } from "../services/api";
+import { expenseService, Expense, User, mlService, userService } from "../services/api";
 import { RootStackParamList } from "../navigation/AppNavigator";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, "Home">;
@@ -29,6 +42,29 @@ interface UserExpenseGroup {
   user: User;
   expenses: Expense[];
 }
+
+interface AssistantMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
+const sumAmounts = (expenses: Expense[], movementType: Expense["movement_type"]) =>
+  expenses
+    .filter((item) => item.movement_type === movementType)
+    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+const calculateInvestmentProjection = (expenses: Expense[]) =>
+  expenses
+    .filter(
+      (item) =>
+        item.movement_type === "investment" &&
+        item.expected_return_rate &&
+        Number(item.expected_return_rate) > 0
+    )
+    .reduce((sum, item) => {
+      const rate = Number(item.expected_return_rate || 0) / 100;
+      return sum + Number(item.amount || 0) * rate;
+    }, 0);
 
 const normalizeIncomeToMonthly = (amount?: number | null, frequency?: string | null) => {
   if (!amount || amount <= 0) {
@@ -57,6 +93,18 @@ export default function HomeScreen() {
   const [error, setError] = useState("");
   const [currencyMenuVisible, setCurrencyMenuVisible] = useState(false);
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
+  const [assistantVisible, setAssistantVisible] = useState(false);
+  const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantAnalysisText, setAssistantAnalysisText] = useState("");
+  const [assistantAnalysisExpanded, setAssistantAnalysisExpanded] = useState(true);
+  const [assistantQuestion, setAssistantQuestion] = useState("");
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([]);
+  const [assistantSuggestedQuestions, setAssistantSuggestedQuestions] = useState<string[]>([
+    "Como puedo ahorrar este mes?",
+    "Cual es mi categoria con mas gastos?",
+    "Que porcentaje de mi sueldo he gastado?",
+    "Como puedo empezar a invertir de forma segura?",
+  ]);
   const sidebarTranslate = useRef(new Animated.Value(-320)).current;
   const sidebarOpacity = useRef(new Animated.Value(0)).current;
   const hoverCloseTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -146,8 +194,7 @@ export default function HomeScreen() {
               <Text style={styles.headerBrandBadgeText}>EF</Text>
             </View>
             <View>
-              <Text style={styles.headerBrandTitle}>EcoFinance</Text>
-              <Text style={styles.headerBrandSubtitle}>Dashboard</Text>
+              <Text style={styles.headerBrandTitle}>EcoFinance Intelligence</Text>
             </View>
           </View>
         </View>
@@ -198,21 +245,115 @@ export default function HomeScreen() {
     await loadDashboard();
   };
 
+  const buildSingleAnalysisText = (payload: {
+    conclusions?: string[];
+    suggestions?: string[];
+  }) => {
+    const conclusions = (payload.conclusions || []).filter(Boolean).join(" ").trim();
+    const suggestions = (payload.suggestions || []).filter(Boolean).join(" ").trim();
+    if (conclusions && suggestions) {
+      return `${conclusions} ${suggestions}`.trim();
+    }
+    return (conclusions || suggestions || "Aun no hay analisis disponible.").trim();
+  };
+
+  const openAssistant = async () => {
+    setAssistantVisible(true);
+    setAssistantLoading(true);
+    try {
+      if (user?.is_admin) {
+        const insights = await mlService.getAdminInsights();
+        setAssistantAnalysisText(
+          buildSingleAnalysisText({
+            conclusions: insights.conclusions,
+            suggestions: insights.suggestions,
+          })
+        );
+      } else {
+        const insights = await mlService.getMyInsights();
+        setAssistantAnalysisText(
+          buildSingleAnalysisText({
+            conclusions: insights.conclusions,
+            suggestions: insights.suggestions,
+          })
+        );
+      }
+
+      if (!assistantMessages.length) {
+        setAssistantMessages([
+          {
+            role: "assistant",
+            text:
+              "Hola, soy tu asistente financiero. Puedes preguntarme por ahorro, inversion, categoria de mayor gasto y porcentaje de sueldo gastado.",
+          },
+        ]);
+      }
+    } catch (err) {
+      setAssistantAnalysisText(
+        err instanceof Error
+          ? `No pude cargar el analisis ahora: ${err.message}`
+          : "No pude cargar el analisis en este momento."
+      );
+    } finally {
+      setAssistantLoading(false);
+    }
+  };
+
+  const askAssistant = async (rawQuestion?: string) => {
+    const question = (rawQuestion || assistantQuestion).trim();
+    if (!question || !user) {
+      return;
+    }
+
+    const currentMessages = [...assistantMessages, { role: "user", text: question } as AssistantMessage];
+    setAssistantMessages(currentMessages);
+    setAssistantQuestion("");
+    setAssistantLoading(true);
+
+    try {
+      const response = await mlService.askFinancialAssistant({ question, target_user_id: user.id });
+      setAssistantMessages([
+        ...currentMessages,
+        { role: "assistant", text: response.answer },
+      ]);
+      if (response.suggested_questions?.length) {
+        setAssistantSuggestedQuestions(response.suggested_questions);
+      }
+    } catch (err) {
+      setAssistantMessages([
+        ...currentMessages,
+        {
+          role: "assistant",
+          text:
+            err instanceof Error
+              ? err.message
+              : "No pude responder en este momento. Intenta nuevamente.",
+        },
+      ]);
+    } finally {
+      setAssistantLoading(false);
+    }
+  };
+
   const totalUsers = groups.length;
   const groupedSummaries = groups.map((group) => {
     const recurringIncome = normalizeIncomeToMonthly(
       group.user.base_income,
       group.user.income_frequency
     );
-    const extraIncome = group.expenses
-      .filter((item) => item.movement_type === "income")
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    const expensesTotal = group.expenses
-      .filter((item) => item.movement_type === "expense")
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    const investmentsTotal = group.expenses
-      .filter((item) => item.movement_type === "investment")
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const extraIncome = sumAmounts(group.expenses, "income");
+    const expensesTotal = sumAmounts(group.expenses, "expense");
+    const investmentsTotal = sumAmounts(group.expenses, "investment");
+    const projectedMonthlyReturn = calculateInvestmentProjection(
+      group.expenses.filter(
+        (item) => item.expected_return_frequency !== "annual"
+      )
+    );
+    const projectedAnnualReturn = calculateInvestmentProjection(
+      group.expenses.filter(
+        (item) => item.expected_return_frequency === "annual"
+      )
+    );
 
     return {
       user: group.user,
@@ -221,6 +362,8 @@ export default function HomeScreen() {
       extraIncome,
       expensesTotal,
       investmentsTotal,
+      projectedMonthlyReturn,
+      projectedAnnualReturn,
       availableBalance:
         recurringIncome + extraIncome - expensesTotal - investmentsTotal,
     };
@@ -243,11 +386,55 @@ export default function HomeScreen() {
     (sum, group) => sum + group.investmentsTotal,
     0
   );
+  const totalProjectedMonthlyReturn = groupedSummaries.reduce(
+    (sum, group) => sum + group.projectedMonthlyReturn,
+    0
+  );
+  const totalProjectedAnnualReturn = groupedSummaries.reduce(
+    (sum, group) => sum + group.projectedAnnualReturn,
+    0
+  );
   const totalAvailableBalance =
     totalRecurringIncome +
     totalExtraIncome -
     totalExpensesAmount -
     totalInvestmentsAmount;
+  const summaryStats = [
+    {
+      label: user?.is_admin ? "Usuarios activos" : "Tu perfil",
+      value: user?.is_admin ? String(totalUsers) : "Personal",
+    },
+    {
+      label: "Ingresos totales",
+      value: formatCurrency(totalRecurringIncome + totalExtraIncome),
+    },
+    {
+      label: "Balance disponible",
+      value: formatCurrency(totalAvailableBalance),
+    },
+    {
+      label: "Ganancia estimada/mes",
+      value: formatCurrency(totalProjectedMonthlyReturn),
+    },
+    {
+      label: "Ganancia estimada/año",
+      value: formatCurrency(totalProjectedAnnualReturn),
+    },
+  ];
+  const quickActions: React.ComponentProps<typeof QuickDockButton>[] = [
+    {
+      icon: "view-dashboard-outline",
+      onPress: () => navigation.navigate("Home"),
+    },
+    {
+      icon: "history",
+      onPress: () => navigation.navigate("History"),
+    },
+    {
+      icon: "cash-plus",
+      onPress: () => navigation.navigate("Expense"),
+    },
+  ];
   const totalsByUser = groupedSummaries.map((group) => ({
     label: group.user.name.split(" ")[0].slice(0, 6) || `U${group.user.id}`,
     total: group.availableBalance,
@@ -286,6 +473,9 @@ export default function HomeScreen() {
                   </Chip>
                   <Chip style={styles.heroChip} textStyle={styles.heroChipText}>
                     Disponible: {formatCurrency(totalAvailableBalance)}
+                  </Chip>
+                  <Chip style={styles.heroChip} textStyle={styles.heroChipText}>
+                    Invertido: {formatCurrency(totalInvestmentsAmount)}
                   </Chip>
                 </View>
 
@@ -329,7 +519,7 @@ export default function HomeScreen() {
                     <View style={styles.actionButton}>
                       <ButtonCustom
                         label="Ver ML"
-                        onPress={() => navigation.navigate("ML")}
+                        onPress={() => void openAssistant()}
                         mode="outlined"
                         icon="chart-bubble"
                       />
@@ -339,18 +529,9 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.summaryPanel}>
-                <SurfaceStat
-                  label={user?.is_admin ? "Usuarios activos" : "Tu perfil"}
-                  value={user?.is_admin ? String(totalUsers) : "Personal"}
-                />
-                <SurfaceStat
-                  label="Ingresos totales"
-                  value={formatCurrency(totalRecurringIncome + totalExtraIncome)}
-                />
-                <SurfaceStat
-                  label="Balance disponible"
-                  value={formatCurrency(totalAvailableBalance)}
-                />
+                {summaryStats.map((item) => (
+                  <SurfaceStat key={item.label} label={item.label} value={item.value} />
+                ))}
               </View>
             </View>
           </Card.Content>
@@ -443,6 +624,12 @@ export default function HomeScreen() {
                   <Chip style={styles.metricChip} textStyle={styles.metricChipText}>
                     Inversión: {formatCurrency(group.investmentsTotal)}
                   </Chip>
+                  <Chip style={styles.metricChip} textStyle={styles.metricChipText}>
+                    Gana/mes: {formatCurrency(group.projectedMonthlyReturn)}
+                  </Chip>
+                  <Chip style={styles.metricChip} textStyle={styles.metricChipText}>
+                    Gana/año: {formatCurrency(group.projectedAnnualReturn)}
+                  </Chip>
                 </View>
 
                 <Divider style={styles.divider} />
@@ -461,6 +648,146 @@ export default function HomeScreen() {
           ))}
         </View>
       </ScrollView>
+
+      <TouchableOpacity
+        activeOpacity={0.9}
+        style={styles.mlFloatingButton}
+        onPress={openAssistant}
+      >
+        <Text style={styles.mlFloatingButtonText}>IA Financiera</Text>
+      </TouchableOpacity>
+
+      {assistantVisible ? (
+        <View
+          style={[
+            styles.assistantFloatingPanel,
+            isCompact
+              ? styles.assistantFloatingPanelCompact
+              : styles.assistantFloatingPanelDesktop,
+          ]}
+        >
+          <View style={styles.assistantPanelHeader}>
+            <View style={styles.assistantPanelTitleWrap}>
+              <Text style={styles.assistantPanelEyebrow}>EcoFinance</Text>
+              <Text style={styles.assistantPanelTitle}>Intelligence</Text>
+            </View>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setAssistantVisible(false)}
+              style={styles.assistantCloseButton}
+            >
+              <Text style={styles.assistantCloseButtonText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+
+          {assistantLoading ? (
+            <View style={styles.assistantLoadingRow}>
+              <ActivityIndicator color={Colors.primary} />
+              <Text style={styles.assistantHelperText}>Cargando...</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.assistantAnalysisCard}>
+            <View style={styles.assistantAnalysisHeader}>
+              <Text style={styles.assistantSectionTitle}>Analisis actual</Text>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => setAssistantAnalysisExpanded((current) => !current)}
+                style={styles.assistantAnalysisToggle}
+              >
+                <Text style={styles.assistantAnalysisToggleText}>
+                  {assistantAnalysisExpanded ? "Ocultar" : "Mostrar"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {assistantAnalysisExpanded ? (
+              <ScrollView
+                style={styles.assistantAnalysisBody}
+                contentContainerStyle={styles.assistantAnalysisBodyContent}
+                nestedScrollEnabled
+              >
+                <Text style={styles.assistantAnalysisText}>
+                  {assistantAnalysisText || "Aun no hay analisis disponible."}
+                </Text>
+              </ScrollView>
+            ) : null}
+          </View>
+
+          <Text style={styles.assistantSectionTitle}>Chat</Text>
+          <View style={styles.assistantChatCard}>
+            <ScrollView
+              style={[
+                styles.assistantMessagesBox,
+                assistantAnalysisExpanded
+                  ? styles.assistantMessagesBoxWithAnalysis
+                  : styles.assistantMessagesBoxExpanded,
+              ]}
+              contentContainerStyle={styles.assistantMessagesContent}
+            >
+              {assistantMessages.map((message, index) => (
+                <View
+                  key={`${message.role}-${index}`}
+                  style={[
+                    styles.assistantBubble,
+                    message.role === "user"
+                      ? styles.assistantBubbleUser
+                      : styles.assistantBubbleAI,
+                  ]}
+                >
+                  <Text style={styles.assistantBubbleText}>{message.text}</Text>
+                </View>
+              ))}
+            </ScrollView>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.assistantChipsRow}
+              contentContainerStyle={styles.assistantChipsContent}
+            >
+              {assistantSuggestedQuestions.map((question) => (
+                <TouchableOpacity
+                  key={question}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    setAssistantQuestion(question);
+                    void askAssistant(question);
+                  }}
+                  style={styles.assistantQuestionChip}
+                >
+                  <Text style={styles.assistantQuestionChipText}>{question}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <View style={styles.assistantComposer}>
+              <View style={styles.assistantComposerBubble}>
+                <TextInput
+                  mode="flat"
+                  placeholder="Preguntale a la IA"
+                  value={assistantQuestion}
+                  onChangeText={setAssistantQuestion}
+                  multiline
+                  style={styles.assistantInput}
+                  contentStyle={styles.assistantInputText}
+                  underlineColor="transparent"
+                  activeUnderlineColor="transparent"
+                  returnKeyType="send"
+                  submitBehavior="submit"
+                  onSubmitEditing={() => void askAssistant()}
+                />
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  style={styles.assistantAskButton}
+                  onPress={() => void askAssistant()}
+                >
+                  <Text style={styles.assistantAskButtonText}>Enviar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       <Pressable
         style={[
@@ -486,18 +813,9 @@ export default function HomeScreen() {
               isCompact ? styles.quickDockCompact : null,
             ]}
           >
-            <QuickDockButton
-              icon="view-dashboard-outline"
-              onPress={() => navigation.navigate("Home")}
-            />
-            <QuickDockButton
-              icon="history"
-              onPress={() => navigation.navigate("History")}
-            />
-            <QuickDockButton
-              icon="cash-plus"
-              onPress={() => navigation.navigate("Expense")}
-            />
+            {quickActions.map((item) => (
+              <QuickDockButton key={item.icon} {...item} />
+            ))}
           </View>
         ) : null}
 
@@ -597,81 +915,6 @@ export default function HomeScreen() {
   );
 }
 
-function SurfaceStat({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.statCard}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>{value}</Text>
-    </View>
-  );
-}
-
-function SidebarItem({
-  icon,
-  label,
-  active,
-  danger,
-  onPress,
-}: {
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
-  label: string;
-  active?: boolean;
-  danger?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.82}
-      onPress={onPress}
-      style={[
-        styles.sidebarItem,
-        active ? styles.sidebarItemActive : null,
-        danger ? styles.sidebarItemDanger : null,
-      ]}
-    >
-      <View
-        style={[
-          styles.sidebarIconWrap,
-          active ? styles.sidebarIconWrapActive : null,
-          danger ? styles.sidebarIconWrapDanger : null,
-        ]}
-      >
-        <MaterialCommunityIcons
-          name={icon}
-          size={23}
-          color={danger ? "#FFD8D8" : active ? Colors.surface : "#EAF2FB"}
-        />
-      </View>
-      <Text
-        style={[
-          styles.sidebarItemText,
-          active ? styles.sidebarItemTextActive : null,
-          danger ? styles.sidebarItemTextDanger : null,
-        ]}
-      >
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
-function QuickDockButton({
-  icon,
-  onPress,
-}: {
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={styles.quickDockButton}
-    >
-      <MaterialCommunityIcons name={icon} size={22} color={Colors.primary} />
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -687,6 +930,252 @@ const styles = StyleSheet.create({
   contentCompact: {
     paddingHorizontal: 12,
     paddingBottom: 24,
+  },
+  mlFloatingButton: {
+    position: "absolute",
+    right: 16,
+    bottom: 18,
+    backgroundColor: Colors.primary,
+    borderRadius: 16,
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    zIndex: 30,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  mlFloatingButtonText: {
+    color: Colors.surface,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    fontSize: 15,
+  },
+  assistantFloatingPanel: {
+    position: "absolute",
+    right: 16,
+    width: 430,
+    maxWidth: "96%",
+    backgroundColor: "#F8FBF9",
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#D7E5DD",
+    padding: 18,
+    zIndex: 40,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    elevation: 8,
+    flexDirection: "column",
+  },
+  assistantFloatingPanelDesktop: {
+    top: 88,
+    bottom: 88,
+  },
+  assistantFloatingPanelCompact: {
+    top: 72,
+    bottom: 74,
+    right: 10,
+    left: 10,
+    width: "auto",
+  },
+  assistantPanelHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 14,
+  },
+  assistantPanelTitleWrap: {
+    flex: 1,
+  },
+  assistantPanelEyebrow: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  assistantPanelTitle: {
+    color: Colors.textPrimary,
+    fontWeight: "800",
+    fontSize: 26,
+    lineHeight: 32,
+    flex: 1,
+    paddingRight: 12,
+  },
+  assistantLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  assistantHelperText: {
+    color: Colors.textSecondary,
+    fontSize: 16,
+  },
+  assistantSectionTitle: {
+    color: Colors.textPrimary,
+    fontWeight: "700",
+    marginBottom: 8,
+    marginTop: 0,
+    fontSize: 18,
+  },
+  assistantAnalysisCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#E2ECE6",
+    maxHeight: 230,
+  },
+  assistantAnalysisHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  assistantAnalysisToggle: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#EEF5F1",
+  },
+  assistantAnalysisToggleText: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  assistantAnalysisBody: {
+    marginTop: 8,
+    maxHeight: 150,
+  },
+  assistantAnalysisBodyContent: {
+    paddingBottom: 2,
+  },
+  assistantAnalysisText: {
+    color: Colors.textSecondary,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  assistantChatCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 22,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#E2ECE6",
+  },
+  assistantMessagesBox: {
+    flexGrow: 1,
+    minHeight: 140,
+    marginBottom: 12,
+  },
+  assistantMessagesBoxWithAnalysis: {
+    maxHeight: 210,
+  },
+  assistantMessagesBoxExpanded: {
+    maxHeight: 360,
+  },
+  assistantMessagesContent: {
+    gap: 10,
+    paddingBottom: 4,
+  },
+  assistantBubble: {
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  assistantBubbleUser: {
+    backgroundColor: "#E7F0FB",
+    alignSelf: "flex-end",
+    maxWidth: "90%",
+  },
+  assistantBubbleAI: {
+    backgroundColor: "#E6F3EA",
+    alignSelf: "flex-start",
+    maxWidth: "96%",
+  },
+  assistantBubbleText: {
+    color: Colors.textPrimary,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  assistantChipsRow: {
+    marginBottom: 12,
+    maxHeight: 52,
+    flexGrow: 0,
+  },
+  assistantChipsContent: {
+    paddingRight: 8,
+  },
+  assistantQuestionChip: {
+    backgroundColor: "#ECF4EE",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: "#D7E5DD",
+  },
+  assistantQuestionChipText: {
+    color: Colors.textPrimary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  assistantComposer: {
+    width: "100%",
+  },
+  assistantComposerBubble: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
+    backgroundColor: "#F7FAF8",
+    borderWidth: 1,
+    borderColor: "#D7E5DD",
+    borderRadius: 20,
+    padding: 10,
+    width: "100%",
+  },
+  assistantInput: {
+    backgroundColor: "transparent",
+    flexGrow: 0,
+    flex: 1,
+    minHeight: 56,
+  },
+  assistantInputText: {
+    fontSize: 15,
+    lineHeight: 22,
+    minHeight: 56,
+    paddingTop: 10,
+  },
+  assistantAskButton: {
+    backgroundColor: Colors.primary,
+    borderRadius: 18,
+    minHeight: 48,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "flex-end",
+  },
+  assistantAskButtonText: {
+    color: Colors.surface,
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  assistantCloseButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#EEF5F1",
+  },
+  assistantCloseButtonText: {
+    color: Colors.primary,
+    fontWeight: "700",
+    fontSize: 14,
   },
   welcomeCard: {
     backgroundColor: Colors.primary,
@@ -882,20 +1371,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontStyle: "italic",
   },
-  statCard: {
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderRadius: 20,
-    padding: 16,
-  },
-  statLabel: {
-    color: "#D9F3E5",
-    marginBottom: 6,
-  },
-  statValue: {
-    color: Colors.surface,
-    fontSize: 24,
-    fontWeight: "800",
-  },
   sidebarBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(7, 10, 14, 0.36)",
@@ -969,46 +1444,6 @@ const styles = StyleSheet.create({
     color: "#7E90A6",
     fontSize: 12,
   },
-  sidebarItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    marginHorizontal: 12,
-    borderRadius: 16,
-  },
-  sidebarItemActive: {
-    backgroundColor: "#162231",
-  },
-  sidebarItemDanger: {
-    backgroundColor: "rgba(214, 69, 69, 0.12)",
-  },
-  sidebarIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "#1A2531",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sidebarIconWrapActive: {
-    backgroundColor: Colors.primary,
-  },
-  sidebarIconWrapDanger: {
-    backgroundColor: "rgba(214, 69, 69, 0.18)",
-  },
-  sidebarItemText: {
-    color: "#F3F7FB",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  sidebarItemTextActive: {
-    color: "#FFFFFF",
-  },
-  sidebarItemTextDanger: {
-    color: "#FFD8D8",
-  },
   sidebarDivider: {
     height: 1,
     backgroundColor: "rgba(255,255,255,0.08)",
@@ -1032,18 +1467,5 @@ const styles = StyleSheet.create({
   quickDockCompact: {
     left: 8,
     top: 104,
-  },
-  quickDockButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.86)",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#0F1720",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
   },
 });

@@ -11,6 +11,12 @@ interface ExpenseCardProps {
 
 export default function ExpenseCard({ expense }: ExpenseCardProps) {
   const { formatCurrency } = useCurrency();
+  const projectedReturn =
+    expense.movement_type === "investment" &&
+    expense.expected_return_rate &&
+    expense.expected_return_rate > 0
+      ? Number(expense.amount || 0) * (Number(expense.expected_return_rate) / 100)
+      : 0;
   const movementMeta =
     expense.movement_type === "income"
       ? {
@@ -56,6 +62,16 @@ export default function ExpenseCard({ expense }: ExpenseCardProps) {
         <Text variant="bodyMedium" style={styles.date}>
           Fecha: {expense.date}
         </Text>
+
+        {expense.movement_type === "investment" && expense.expected_return_rate ? (
+          <Text variant="bodyMedium" style={styles.investmentMeta}>
+            Retorno estimado: {expense.expected_return_rate}%{" "}
+            {expense.expected_return_frequency === "annual" ? "anual" : "mensual"}
+            {projectedReturn > 0
+              ? ` · ${formatCurrency(projectedReturn)}`
+              : ""}
+          </Text>
+        ) : null}
       </Card.Content>
     </Card>
   );
@@ -96,5 +112,10 @@ const styles = StyleSheet.create({
   },
   date: {
     color: Colors.textSecondary,
+  },
+  investmentMeta: {
+    color: Colors.success,
+    marginTop: 6,
+    fontWeight: "600",
   },
 });

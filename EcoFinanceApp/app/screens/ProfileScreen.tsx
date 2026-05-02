@@ -24,6 +24,8 @@ const incomeFrequencies = [
 export default function ProfileScreen() {
   const { user, updateProfile } = useAuth();
   const cameraRef = useRef<CameraView | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [cameraFacing, setCameraFacing] = useState<CameraType>("front");
   const [cameraVisible, setCameraVisible] = useState(false);
@@ -47,6 +49,39 @@ export default function ProfileScreen() {
     setAvatarUri(user?.avatarUri || null);
   }, [user]);
 
+  // Iniciar cámara web en tiempo real
+  useEffect(() => {
+    if (!cameraVisible || Platform.OS !== "web") return;
+
+    const initWebCamera = async () => {
+      try {
+        const constraints = {
+          video: {
+            facingMode: cameraFacing === "front" ? "user" : "environment",
+            width: { ideal: 400 },
+            height: { ideal: 400 },
+          },
+        };
+        const stream = await (navigator.mediaDevices?.getUserMedia(constraints) as Promise<MediaStream>);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (err) {
+        setError("No se pudo acceder a la cámara web. Verifica los permisos.");
+      }
+    };
+
+    initWebCamera();
+
+    return () => {
+      if (videoRef.current?.srcObject) {
+        (videoRef.current.srcObject as MediaStream).getTracks().forEach((track) => {
+          track.stop();
+        });
+      }
+    };
+  }, [cameraVisible, cameraFacing]);
+
   const handlePickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -67,44 +102,56 @@ export default function ProfileScreen() {
   };
 
   const handleTakePhoto = async () => {
-    if (Platform.OS === "web" || Platform.OS === "ios" || Platform.OS === "android") {
-      const permission = cameraPermission?.granted
-        ? cameraPermission
-        : await requestCameraPermission();
-
-      if (!permission?.granted) {
-        setError("Debes permitir acceso a la cámara para tomar una foto.");
-        return;
-      }
-
+    if (Platform.OS === "web") {
       setError("");
       setCameraVisible(true);
       return;
     }
 
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
+    const permission = cameraPermission?.granted
+      ? cameraPermission
+      : await requestCameraPermission();
+
+    if (!permission?.granted) {
       setError("Debes permitir acceso a la cámara para tomar una foto.");
       return;
     }
 
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-
-    if (!result.canceled && result.assets[0]?.uri) {
-      setAvatarUri(result.assets[0].uri);
-    }
+    setError("");
+    setCameraVisible(true);
   };
 
   const handleCapturePhoto = async () => {
-    if (!cameraRef.current) {
-      return;
-    }
-
     try {
+      if (Platform.OS === "web") {
+        if (!videoRef.current || !canvasRef.current) {
+          setError("Cámara web no disponible.");
+          return;
+        }
+
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+
+        if (!ctx) {
+          setError("No se pudo capturar la foto.");
+          return;
+        }
+
+        canvas.width = video.videoWidth || 400;
+        canvas.height = video.videoHeight || 400;
+        ctx.drawImage(video, 0, 0);
+
+        const photoUri = canvas.toDataURL("image/jpeg", 0.7);
+        setAvatarUri(photoUri);
+        setCameraVisible(false);
+        return;
+      }
+
+      if (!cameraRef.current) {
+        return;
+      }
+
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.7,
       });
@@ -321,27 +368,42 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.cameraFrame}>
-              <CameraView
-                ref={cameraRef}
-                style={StyleSheet.absoluteFillObject}
-                facing={cameraFacing}
-              />
-            </View>
-
-            <View style={styles.cameraActions}>
-              <View style={styles.cameraActionButton}>
-                <ButtonCustom
-                  label="Cambiar cámara"
-                  onPress={() =>
-                    setCameraFacing((current) =>
-                      current === "front" ? "back" : "front"
-                    )
-                  }
-                  mode="outlined"
-                  icon="camera-flip-outline"
+            {Platform.OS === "web" ? (
+              <div style={{ width: "100%", borderRadius: 22, overflow: "hidden", backgroundColor: "#0F1720", marginBottom: 16 } as any}>
+                <video
+                  ref={videoRef as any}
+                  autoPlay
+                  playsInline
+                  style={{ width: "100%", height: "400px", objectFit: "cover" } as any}
+                />
+              </div>
+            ) : (
+              <View style={styles.cameraFrame}>
+                <CameraView
+                  ref={cameraRef}
+                  style={StyleSheet.absoluteFillObject}
+                  facing={cameraFacing}
                 />
               </View>
+            )}
+
+            <canvas ref={canvasRef} style={{ display: "none" } as any} />
+
+            <View style={styles.cameraActions}>
+              {Platform.OS !== "web" && (
+                <View style={styles.cameraActionButton}>
+                  <ButtonCustom
+                    label="Cambiar cámara"
+                    onPress={() =>
+                      setCameraFacing((current) =>
+                        current === "front" ? "back" : "front"
+                      )
+                    }
+                    mode="outlined"
+                    icon="camera-flip-outline"
+                  />
+                </View>
+              )}
               <View style={styles.cameraActionButton}>
                 <ButtonCustom
                   label="Capturar"

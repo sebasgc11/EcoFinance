@@ -1,7 +1,7 @@
 from sqlalchemy import inspect, text
 
 from app.core.config import settings
-from app.db.session import engine, SessionLocal
+from app.db import session as db_session
 from app.models.base import Base
 from app.core.security import hash_password
 
@@ -11,6 +11,9 @@ from app.models.category import Category
 from app.models.expense import Expense
 
 def init_db():
+    db_session.ensure_database_connection()
+    engine = db_session.get_engine()
+
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
     columns = {column["name"] for column in inspector.get_columns("users")}
@@ -60,6 +63,18 @@ def init_db():
                     "ALTER TABLE expenses ADD COLUMN movement_type VARCHAR(20) NOT NULL DEFAULT 'expense'"
                 )
             )
+    if "expected_return_rate" not in expense_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE expenses ADD COLUMN expected_return_rate FLOAT NULL")
+            )
+    if "expected_return_frequency" not in expense_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE expenses ADD COLUMN expected_return_frequency VARCHAR(20) NULL"
+                )
+            )
 
     category_columns = {
         column["name"] for column in inspector.get_columns("categories")
@@ -79,7 +94,7 @@ def init_db():
                 )
             )
 
-    db = SessionLocal()
+    db = db_session.SessionLocal()
     try:
         total_users = db.execute(text("SELECT COUNT(*) FROM users")).scalar() or 0
 
