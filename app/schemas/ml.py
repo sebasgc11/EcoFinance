@@ -75,6 +75,7 @@ class SyntheticDatasetRequest(BaseModel):
 class SyntheticDatasetOut(BaseModel):
     rows_generated: int
     sample: list[DatasetRow]
+    rows: list[DatasetRow]
 
 
 class PublicDatasetImportRequest(BaseModel):

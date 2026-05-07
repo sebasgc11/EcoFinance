@@ -1,6 +1,6 @@
 {
-  "version": "20260417000115",
-  "trained_at": "2026-04-17T00:03:19Z",
+  "version": "20260506143520",
+  "trained_at": "2026-05-06T14:35:24Z",
   "train_baseline": {
     "feature_cols": [
       "expense",
@@ -13,14 +13,14 @@
       "net_balance"
     ],
     "feature_means": {
-      "expense": 1306.8693378692053,
-      "income": 1640.351532496804,
-      "investment": 134.51306869407256,
-      "tx_count": 15.640861535356255,
-      "avg_amount": 209.81109213912367,
-      "outflow": 1441.382406563278,
-      "spend_income_ratio": 0.8721304022736954,
-      "net_balance": 198.96912593352624
+      "expense": 3568.2467499999993,
+      "income": 3239.6876805555553,
+      "investment": 16320.693430555557,
+      "tx_count": 15.573611111111111,
+      "avg_amount": 1037.558280802577,
+      "outflow": 19888.940180555554,
+      "spend_income_ratio": 1.6768080893615311,
+      "net_balance": -16649.252500000002
     }
   }
 }

@@ -74,6 +74,7 @@ def generate_synthetic_dataset(
     return {
         "rows_generated": len(rows),
         "sample": rows[:100],
+        "rows": rows,
     }
 
 

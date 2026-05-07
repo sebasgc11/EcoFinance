@@ -1,19 +1,19 @@
 {
   "framework": "CRISP-ML(Q)",
-  "run_id": "20260423204906",
-  "executed_at": "2026-04-23T20:49:09Z",
+  "run_id": "20260506143520",
+  "executed_at": "2026-05-06T14:35:24Z",
   "phases": [
     {
       "phase": "business_data_understanding",
       "status": "ok",
       "kpis": {
-        "total_real_rows": 9,
+        "total_real_rows": 17,
         "total_real_users": 2,
         "null_base_income_ratio": 0.3333,
         "movement_distribution": {
-          "expense": 0.5556,
-          "investment": 0.2222,
-          "income": 0.2222
+          "expense": 0.5294,
+          "investment": 0.2941,
+          "income": 0.1765
         }
       },
       "quality_gate_passed": true,
@@ -28,11 +28,11 @@
       "status": "ok",
       "quality_gate_passed": true,
       "qa": {
-        "combined_rows": 11205,
-        "prepared_rows": 809,
+        "combined_rows": 11213,
+        "prepared_rows": 720,
         "synthetic_rows": 11196,
         "missing_ratio": 0.0,
-        "class_balance_high_risk": 0.4462
+        "class_balance_high_risk": 0.4139
       },
       "notes": [
         "Se combinaron datos reales y sinteticos (si fue solicitado).",
@@ -45,94 +45,95 @@
       "quality_gate_passed": true,
       "notes": [
         "Split de validacion: temporal_holdout.",
-        "Modelo seleccionado automaticamente: random_forest.",
+        "Modelo seleccionado automaticamente: logistic_regression.",
         "Se compararon LogisticRegression y RandomForest."
       ],
-      "selected_model": "random_forest",
+      "selected_model": "logistic_regression",
       "candidate_metrics": {
         "logistic_regression": {
-          "accuracy": 0.5742,
+          "accuracy": 1.0,
           "precision": 1.0,
-          "recall_high_risk": 0.3732,
-          "f1": 0.5436,
-          "roc_auc": 0.3872
+          "recall_high_risk": 1.0,
+          "f1": 1.0,
+          "roc_auc": 1.0
         },
         "random_forest": {
-          "accuracy": 0.5789,
+          "accuracy": 1.0,
           "precision": 1.0,
-          "recall_high_risk": 0.3803,
-          "f1": 0.551,
-          "roc_auc": 0.9899
+          "recall_high_risk": 1.0,
+          "f1": 1.0,
+          "roc_auc": 1.0
         }
       }
     },
     {
       "phase": "model_evaluation",
-      "status": "warning",
-      "quality_gate_passed": false,
+      "status": "ok",
+      "quality_gate_passed": true,
       "metrics": {
-        "accuracy": 0.5789,
+        "accuracy": 1.0,
         "precision": 1.0,
-        "recall_high_risk": 0.3803,
-        "f1": 0.551,
-        "roc_auc": 0.9899
+        "recall_high_risk": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0
       },
-      "selected_model": "random_forest",
+      "selected_model": "logistic_regression",
       "candidate_metrics": {
         "logistic_regression": {
-          "accuracy": 0.5742,
+          "accuracy": 1.0,
           "precision": 1.0,
-          "recall_high_risk": 0.3732,
-          "f1": 0.5436,
-          "roc_auc": 0.3872
+          "recall_high_risk": 1.0,
+          "f1": 1.0,
+          "roc_auc": 1.0
         },
         "random_forest": {
-          "accuracy": 0.5789,
+          "accuracy": 1.0,
           "precision": 1.0,
-          "recall_high_risk": 0.3803,
-          "f1": 0.551,
-          "roc_auc": 0.9899
+          "recall_high_risk": 1.0,
+          "f1": 1.0,
+          "roc_auc": 1.0
         }
       },
       "split_strategy": "temporal_holdout",
       "business_validation": {
-        "meets_f1_target": false,
-        "meets_recall_target": false
+        "meets_f1_target": true,
+        "meets_recall_target": true
       }
     },
     {
       "phase": "deployment",
-      "status": "skipped",
-      "quality_gate_passed": false,
-      "deployed": false,
+      "status": "ok",
+      "quality_gate_passed": true,
+      "deployed": true,
+      "model_version": "20260506143520",
       "notes": [
-        "No se despliega porque no paso calidad de evaluacion."
+        "Modelo desplegado localmente en app/ml_artifacts."
       ]
     },
     {
       "phase": "monitoring_maintenance",
-      "status": "warning",
-      "quality_gate_passed": false,
+      "status": "ok",
+      "quality_gate_passed": true,
       "drift": {
-        "expense": 0.9382,
-        "income": 0.5693,
-        "investment": 8.1977,
-        "tx_count": 0.1145,
-        "avg_amount": 3.3878,
-        "outflow": 1.6156,
-        "spend_income_ratio": 0.1059,
-        "net_balance": 7.0103
+        "expense": 0.0,
+        "income": 0.0,
+        "investment": 0.0,
+        "tx_count": 0.0,
+        "avg_amount": 0.0,
+        "outflow": 0.0,
+        "spend_income_ratio": 0.0,
+        "net_balance": 0.0
       },
-      "max_drift": 8.1977,
+      "max_drift": 0.0,
       "notes": [
         "Monitoreo basado en cambio relativo del promedio por feature.",
-        "Delta maximo observado: 8.1977",
-        "Ultimo F1 registrado: 0.551"
+        "Delta maximo observado: 0.0",
+        "Ultimo F1 registrado: 1.0"
       ]
     }
   ],
   "deployment": {
-    "deployed": false,
-    "model_version": null
+    "deployed": true,
+    "model_version": "20260506143520"
   }
 }

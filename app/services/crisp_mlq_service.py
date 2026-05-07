@@ -10,7 +10,14 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+from sklearn.metrics import (
+    accuracy_score,
+    cohen_kappa_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -28,6 +35,7 @@ class CrispMLQConfig:
     random_state: int = 42
     min_f1: float = 0.65
     min_recall_high_risk: float = 0.60
+    min_kappa: float = 0.60
     max_drift_feature_mean_delta: float = 0.30
 
 
@@ -50,6 +58,12 @@ class CrispMLQService:
 
     def _last_report_path(self) -> Path:
         return self.artifacts_dir / "crisp_mlq_last_report.json"
+
+    def _weka_arff_path(self, run_id: str) -> Path:
+        return self.artifacts_dir / f"risk_training_weka_{run_id}.arff"
+
+    def _latest_weka_arff_path(self) -> Path:
+        return self.artifacts_dir / "risk_training_weka_latest.arff"
 
     def _load_real_dataframe(self) -> pd.DataFrame:
         rows = self.ml_service.export_dataset_rows()
@@ -132,6 +146,71 @@ class CrispMLQService:
 
         return data
 
+    def _write_weka_arff(self, prepared: pd.DataFrame, run_id: str) -> dict:
+        feature_cols = [
+            "expense",
+            "income",
+            "investment",
+            "tx_count",
+            "avg_amount",
+            "outflow",
+            "spend_income_ratio",
+            "net_balance",
+        ]
+        class_col = "target_high_risk"
+        arff_cols = feature_cols + [class_col]
+
+        if prepared.empty:
+            return {
+                "generated": False,
+                "detail": "No hay datos preparados para exportar a Weka Explorer.",
+            }
+
+        export_df = prepared[arff_cols].copy()
+        for col in feature_cols:
+            export_df[col] = pd.to_numeric(export_df[col], errors="coerce").fillna(0.0)
+        export_df[class_col] = export_df[class_col].astype(int).clip(0, 1)
+
+        lines = [
+            "% Dataset generado por EcoFinance para validacion en Weka Explorer",
+            "% Abrir este archivo en Weka Explorer > Preprocess",
+            "% Class attribute: target_high_risk {0,1}",
+            "",
+            "@relation ecofinance_risk_training",
+            "",
+        ]
+        lines.extend(f"@attribute {col} numeric" for col in feature_cols)
+        lines.append("@attribute target_high_risk {0,1}")
+        lines.extend(["", "@data"])
+
+        for _, row in export_df.iterrows():
+            values = [f"{float(row[col]):.6f}" for col in feature_cols]
+            values.append(str(int(row[class_col])))
+            lines.append(",".join(values))
+
+        content = "\n".join(lines) + "\n"
+        versioned_path = self._weka_arff_path(run_id)
+        latest_path = self._latest_weka_arff_path()
+        versioned_path.write_text(content, encoding="utf-8")
+        latest_path.write_text(content, encoding="utf-8")
+
+        return {
+            "generated": True,
+            "tool": "Weka Explorer",
+            "format": "ARFF",
+            "relation": "ecofinance_risk_training",
+            "class_attribute": "target_high_risk",
+            "rows": int(len(export_df)),
+            "versioned_path": str(versioned_path),
+            "latest_path": str(latest_path),
+            "instructions": [
+                "Abrir Weka Explorer.",
+                "Ir a Preprocess y cargar risk_training_weka_latest.arff.",
+                "En Classify, seleccionar target_high_risk como clase.",
+                "Comparar el valor Kappa statistic con el quality gate del proyecto.",
+            ],
+        }
+
     def _phase_business_data_understanding(self, real_df: pd.DataFrame) -> dict:
         total_rows = int(len(real_df))
         total_users = int(real_df["user_id"].nunique()) if not real_df.empty else 0
@@ -163,6 +242,7 @@ class CrispMLQService:
                 "Objetivo de negocio: predecir riesgo financiero mensual por usuario.",
                 "KPI tecnico principal: F1 para clase de alto riesgo.",
                 "KPI de negocio: recall de alto riesgo para priorizar alertas.",
+                "KPI de confiabilidad academica: indice Kappa de Cohen para validar concordancia del clasificador.",
             ],
         }
 
@@ -214,6 +294,7 @@ class CrispMLQService:
         precision = float(precision_score(y_true, y_pred, zero_division=0))
         recall = float(recall_score(y_true, y_pred, zero_division=0))
         f1 = float(f1_score(y_true, y_pred, zero_division=0))
+        kappa = float(cohen_kappa_score(y_true, y_pred))
         try:
             roc_auc = float(roc_auc_score(y_true, y_prob))
         except ValueError:
@@ -224,6 +305,7 @@ class CrispMLQService:
             "precision": round(precision, 4),
             "recall_high_risk": round(recall, 4),
             "f1": round(f1, 4),
+            "kappa": round(kappa, 4),
             "roc_auc": round(roc_auc, 4),
         }
 
@@ -343,11 +425,13 @@ class CrispMLQService:
             candidate_metrics[model_name] = metrics
 
             score_tuple = (
+                metrics["kappa"],
                 metrics["f1"],
                 metrics["recall_high_risk"],
                 metrics["roc_auc"],
             )
             selected_score = (
+                selected_metrics.get("kappa", -1.0),
                 selected_metrics.get("f1", -1.0),
                 selected_metrics.get("recall_high_risk", -1.0),
                 selected_metrics.get("roc_auc", -1.0),
@@ -414,7 +498,12 @@ class CrispMLQService:
 
         f1 = float(metrics.get("f1", 0.0))
         recall = float(metrics.get("recall_high_risk", 0.0))
-        quality_gate = f1 >= self.config.min_f1 and recall >= self.config.min_recall_high_risk
+        kappa = float(metrics.get("kappa", 0.0))
+        quality_gate = (
+            f1 >= self.config.min_f1
+            and recall >= self.config.min_recall_high_risk
+            and kappa >= self.config.min_kappa
+        )
 
         return (
             {
@@ -428,6 +517,9 @@ class CrispMLQService:
                 "business_validation": {
                     "meets_f1_target": f1 >= self.config.min_f1,
                     "meets_recall_target": recall >= self.config.min_recall_high_risk,
+                    "meets_kappa_target": kappa >= self.config.min_kappa,
+                    "kappa_target": self.config.min_kappa,
+                    "kappa_interpretation": ">= 0.60 indica concordancia sustancial y modelo confiable para este proyecto.",
                 },
             },
             metrics,
@@ -535,6 +627,7 @@ class CrispMLQService:
             synthetic_months=synthetic_months,
             seed=seed,
         )
+        weka_export = self._write_weka_arff(prepared, run_id)
 
         phase_3, model, eval_payload = self._phase_model_engineering(prepared)
         phase_4, metrics = self._phase_model_evaluation(model, eval_payload)
@@ -561,6 +654,7 @@ class CrispMLQService:
             "run_id": run_id,
             "executed_at": self._utc_now(),
             "phases": [phase_1, phase_2, phase_3, phase_4, phase_5, phase_6],
+            "weka_explorer": weka_export,
             "deployment": {
                 "deployed": phase_5.get("deployed", False),
                 "model_version": phase_5.get("model_version"),
@@ -580,7 +674,25 @@ class CrispMLQService:
             }
 
         with self._last_report_path().open("r", encoding="utf-8") as f:
-            return json.load(f)
+            report = json.load(f)
+
+        if "weka_explorer" not in report and self._latest_weka_arff_path().exists():
+            report["weka_explorer"] = {
+                "generated": True,
+                "tool": "Weka Explorer",
+                "format": "ARFF",
+                "relation": "ecofinance_risk_training",
+                "class_attribute": "target_high_risk",
+                "latest_path": str(self._latest_weka_arff_path()),
+                "instructions": [
+                    "Abrir Weka Explorer.",
+                    "Ir a Preprocess y cargar risk_training_weka_latest.arff.",
+                    "En Classify, seleccionar target_high_risk como clase.",
+                    "Comparar el valor Kappa statistic con el quality gate del proyecto.",
+                ],
+            }
+
+        return report
 
     def get_model_status(self) -> dict:
         has_model = self._model_path().exists()

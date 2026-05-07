@@ -10,6 +10,7 @@ Este proyecto implementa un pipeline alineado con CRISP-ML(Q) para entrenar y ma
 - KPIs:
   - F1 minimo para clase alto riesgo.
   - Recall minimo para alto riesgo (prioriza no perder casos criticos).
+  - Indice Kappa de Cohen como medida de confiabilidad del algoritmo.
   - Disponibilidad de datos reales por usuario y movimientos.
 
 2. Data Engineering
@@ -28,10 +29,29 @@ Este proyecto implementa un pipeline alineado con CRISP-ML(Q) para entrenar y ma
 
 4. Model Evaluation
 
-- Metricas: accuracy, precision, recall_high_risk, f1, roc_auc.
+- Metricas: accuracy, precision, recall_high_risk, f1, kappa, roc_auc.
 - Quality Gates por defecto:
   - f1 >= 0.65
   - recall_high_risk >= 0.60
+  - kappa >= 0.60
+
+El indice Kappa compara las predicciones del modelo contra la clase real corrigiendo el acierto esperado por azar. En este proyecto se usa como indicador principal de confiabilidad academica: si `kappa >= 0.60`, el modelo alcanza concordancia sustancial; si queda por debajo, el pipeline se marca con advertencia y no se considera confiable para despliegue.
+
+## Validacion en Weka Explorer
+
+Cada ejecucion del pipeline CRISP-ML(Q) exporta un dataset ARFF para Weka:
+
+- app/ml_artifacts/risk_training_weka_latest.arff
+- app/ml_artifacts/risk_training_weka_{run_id}.arff
+
+Uso recomendado en Weka Explorer:
+
+1. Abrir Weka Explorer.
+2. Ir a Preprocess y cargar `risk_training_weka_latest.arff`.
+3. Verificar que la clase sea `target_high_risk`.
+4. Ir a Classify, seleccionar un clasificador comparable (por ejemplo RandomForest o Logistic).
+5. Ejecutar la evaluacion y registrar `Kappa statistic`.
+6. Comparar ese Kappa con el quality gate del proyecto (`>= 0.60`).
 
 5. Deployment
 

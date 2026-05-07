@@ -12,7 +12,6 @@ import {
 } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { BarChart } from "react-native-chart-kit";
 import {
   ActivityIndicator,
   Avatar,
@@ -24,6 +23,7 @@ import {
   TextInput,
 } from "react-native-paper";
 import ButtonCustom from "../components/ButtonCustom";
+import { D3BarChart } from "../components/D3Charts";
 import ExpenseCard from "../components/ExpenseCard";
 import {
   QuickDockButton,
@@ -555,28 +555,15 @@ export default function HomeScreen() {
                   ? "Vista rápida para identificar qué usuarios tienen mayor margen financiero."
                   : "Resumen visual entre ingresos, gastos e inversiones."}
               </Text>
-              <BarChart
-                data={{
-                  labels: totalsByUser.map((item) => item.label),
-                  datasets: [{ data: totalsByUser.map((item) => item.total || 0) }],
-                }}
+              <D3BarChart
+                data={totalsByUser.map((item) => ({
+                  label: item.label,
+                  value: item.total || 0,
+                }))}
                 width={chartWidth}
                 height={240}
-                fromZero
-                yAxisLabel={`${currency.code} `}
-                yAxisSuffix=""
-                showValuesOnTopOfBars
-                chartConfig={{
-                  backgroundGradientFrom: Colors.surface,
-                  backgroundGradientTo: Colors.surface,
-                  decimalPlaces: 0,
-                  color: (opacity = 1) => `rgba(31, 93, 67, ${opacity})`,
-                  labelColor: (opacity = 1) => `rgba(27, 67, 50, ${opacity})`,
-                  fillShadowGradient: Colors.secondary,
-                  fillShadowGradientOpacity: 1,
-                  barPercentage: 0.58,
-                }}
-                style={styles.chart}
+                valuePrefix={currency.code}
+                formatValue={formatCurrency}
               />
             </Card.Content>
           </Card>
@@ -883,6 +870,14 @@ export default function HomeScreen() {
                   onPress={() => {
                     setProfileMenuVisible(false);
                     navigation.navigate("History");
+                  }}
+                />
+                <SidebarItem
+                  icon="brain"
+                  label="IA financiera"
+                  onPress={() => {
+                    setProfileMenuVisible(false);
+                    navigation.navigate("ML");
                   }}
                 />
                 <SidebarItem
@@ -1308,9 +1303,6 @@ const styles = StyleSheet.create({
   chartSubtitle: {
     color: Colors.textSecondary,
     marginBottom: 14,
-  },
-  chart: {
-    borderRadius: 18,
   },
   userCard: {
     backgroundColor: Colors.surface,

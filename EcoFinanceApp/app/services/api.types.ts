@@ -90,7 +90,11 @@ export interface UserInsights {
 
 export interface SyntheticDatasetResponse {
   rows_generated: number;
-  sample: {
+  sample: SyntheticDatasetRow[];
+  rows: SyntheticDatasetRow[];
+}
+
+export interface SyntheticDatasetRow {
     user_id: number;
     user_email: string;
     category_id: number;
@@ -100,7 +104,6 @@ export interface SyntheticDatasetResponse {
     date: string;
     base_income?: number | null;
     income_frequency?: string | null;
-  }[];
 }
 
 export interface CrispDeployment {

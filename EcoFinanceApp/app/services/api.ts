@@ -171,25 +171,31 @@ export const mlService = {
     months: number;
     seed?: number;
   }) =>
-    postData<SyntheticDatasetResponse, typeof payload>(
-      "/ml/dataset/synthetic",
-      payload
-    ),
+    (
+      await api.post<SyntheticDatasetResponse>(
+        "/ml/dataset/synthetic",
+        payload,
+        { timeout: 120000 }
+      )
+    ).data,
   runCrispMLQPipeline: async (payload?: {
     include_synthetic?: boolean;
     synthetic_users?: number;
     synthetic_months?: number;
     seed?: number;
   }) =>
-    postData<CrispMLQReport, NonNullable<typeof payload>>(
-      "/ml/crisp-mlq/run",
-      payload || {
-        include_synthetic: true,
-        synthetic_users: 100,
-        synthetic_months: 12,
-        seed: 42,
-      }
-    ),
+    (
+      await api.post<CrispMLQReport>(
+        "/ml/crisp-mlq/run",
+        payload || {
+          include_synthetic: true,
+          synthetic_users: 100,
+          synthetic_months: 12,
+          seed: 42,
+        },
+        { timeout: 180000 }
+      )
+    ).data,
   getLatestCrispMLQReport: () =>
     getData<Record<string, unknown>>("/ml/crisp-mlq/report/latest"),
   getMyRisk: () => getData<UserRisk>("/ml/risk/me"),

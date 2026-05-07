@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
-import { PieChart } from "react-native-chart-kit";
+import { Platform, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import {
   ActivityIndicator,
   Button,
@@ -12,9 +11,11 @@ import {
   Text,
   TextInput,
 } from "react-native-paper";
+import { D3BarChart, D3DonutChart } from "../components/D3Charts";
 import { Colors } from "../constants/Colors";
 import { useAuth } from "../hooks/useAuth";
 import { AdminInsights, ClusterUser, UserInsights, UserRisk, mlService } from "../services/api";
+import type { SyntheticDatasetRow } from "../services/api.types";
 
 const chartColors = ["#2D6A4F", "#40916C", "#74C69D", "#D8F3DC", "#1B4332"];
 
@@ -26,6 +27,7 @@ type PipelineSummary = {
   syntheticRows: number;
   f1: number;
   recall: number;
+  kappa: number;
   auc: number;
 };
 
@@ -59,7 +61,9 @@ type ProofSnapshot = {
   syntheticRows: number;
   f1: number;
   recall: number;
+  kappa: number;
   auc: number;
+  wekaLatestPath?: string;
   riskLabel?: string;
   riskProbability?: number | null;
 };
@@ -93,10 +97,82 @@ function buildProofSnapshot(
     syntheticRows: Number(qa.synthetic_rows || 0),
     f1: Number(metrics.f1 || 0),
     recall: Number(metrics.recall_high_risk || 0),
+    kappa: Number(metrics.kappa || 0),
     auc: Number(metrics.roc_auc || 0),
+    wekaLatestPath:
+      typeof (report.weka_explorer as Record<string, unknown> | undefined)?.latest_path === "string"
+        ? String((report.weka_explorer as Record<string, unknown>).latest_path)
+        : undefined,
     riskLabel: risk?.risk_label || undefined,
     riskProbability: risk?.risk_probability,
   };
+}
+
+function movementChartData(movementTotals?: {
+  expense?: number;
+  income?: number;
+  investment?: number;
+}) {
+  return [
+    { label: "Ing.", value: Number(movementTotals?.income || 0) },
+    { label: "Gast.", value: Number(movementTotals?.expense || 0) },
+    { label: "Inv.", value: Number(movementTotals?.investment || 0) },
+  ];
+}
+
+function categoryChartData(topCategories?: { name: string; total_amount: number }[]) {
+  return (topCategories || []).slice(0, 5).map((item) => ({
+    label: item.name.slice(0, 7),
+    value: Number(item.total_amount || 0),
+  }));
+}
+
+function monthlyNetChartData(monthlyTrends?: { month: string; net_balance: number }[]) {
+  return (monthlyTrends || []).slice(-6).map((item) => ({
+    label: item.month.slice(5),
+    value: Number(item.net_balance || 0),
+  }));
+}
+
+function csvEscape(value: unknown) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function buildSyntheticDatasetCsv(rows: SyntheticDatasetRow[]) {
+  const columns: Array<keyof SyntheticDatasetRow> = [
+    "user_id",
+    "user_email",
+    "category_id",
+    "category_name",
+    "amount",
+    "movement_type",
+    "date",
+    "base_income",
+    "income_frequency",
+  ];
+  const header = columns.join(",");
+  const body = rows
+    .map((row) => columns.map((column) => csvEscape(row[column])).join(","))
+    .join("\n");
+  return `${header}\n${body}\n`;
+}
+
+function downloadCsvFile(filename: string, content: string) {
+  if (Platform.OS !== "web" || typeof document === "undefined") {
+    return false;
+  }
+
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  return true;
 }
 
 export default function MLScreen() {
@@ -187,7 +263,17 @@ export default function MLScreen() {
         months: Number(monthsCount),
         seed: 42,
       });
-      setDatasetStatus(`Generado: ${response.rows_generated} filas sinteticas.`);
+      const datasetRows = response.rows || response.sample || [];
+      const csv = buildSyntheticDatasetCsv(datasetRows);
+      const downloaded = downloadCsvFile(
+        `ecofinance_dataset_sintetico_${usersCount}u_${monthsCount}m.csv`,
+        csv
+      );
+      setDatasetStatus(
+        downloaded
+          ? `Generado y descargado: ${datasetRows.length} de ${response.rows_generated} filas sinteticas.`
+          : `Generado: ${response.rows_generated} filas sinteticas. La descarga automatica solo esta disponible en web.`
+      );
     } catch (err) {
       setDatasetStatus(
         err instanceof Error
@@ -222,6 +308,7 @@ export default function MLScreen() {
         syntheticRows: Number(qa.synthetic_rows || 0),
         f1: Number(metrics.f1 || 0),
         recall: Number(metrics.recall_high_risk || 0),
+        kappa: Number(metrics.kappa || 0),
         auc: Number(metrics.roc_auc || 0),
       };
 
@@ -286,11 +373,9 @@ export default function MLScreen() {
     });
 
     return Array.from(map.entries()).map(([cluster, count], index) => ({
-      name: `Cluster ${cluster}`,
-      population: count,
+      label: `Cluster ${cluster}`,
+      value: count,
       color: chartColors[index % chartColors.length],
-      legendFontColor: Colors.textPrimary,
-      legendFontSize: 13,
     }));
   }, [clusters]);
 
@@ -300,6 +385,9 @@ export default function MLScreen() {
     220,
     Math.min(width - (isCompact ? 48 : 64), isLargeScreen ? 500 : 360)
   );
+  const gridChartWidth = isLargeScreen
+    ? Math.max(210, Math.min(250, (width - 180) / 4))
+    : chartWidth;
   const adminAnalysisText = composeAnalysisText(
     adminInsights?.conclusions,
     adminInsights?.suggestions
@@ -308,6 +396,12 @@ export default function MLScreen() {
     userInsights?.conclusions,
     userInsights?.suggestions
   );
+  const adminMovementChart = movementChartData(adminInsights?.movement_totals);
+  const adminCategoryChart = categoryChartData(adminInsights?.top_categories);
+  const adminMonthlyChart = monthlyNetChartData(adminInsights?.monthly_trends);
+  const userMovementChart = movementChartData(userInsights?.movement_totals);
+  const userCategoryChart = categoryChartData(userInsights?.top_categories);
+  const userMonthlyChart = monthlyNetChartData(userInsights?.monthly_trends);
 
   const handleAskFinancialAssistant = async () => {
     const question = chatQuestion.trim();
@@ -406,7 +500,8 @@ export default function MLScreen() {
                   mode="text"
                   onPress={() => {
                     setUsersCount("120");
-                    setMonthsCount("6");
+                    setMonthsCount("12");
+                    setDatasetStatus("Modo 10k+ listo: 120 usuarios durante 12 meses.");
                   }}
                 >
                   Usar modo 10k+ datos
@@ -422,6 +517,7 @@ export default function MLScreen() {
                     <Chip style={styles.kpiChip}>Filas sinteticas: {pipelineSummary.syntheticRows}</Chip>
                     <Chip style={styles.kpiChip}>F1: {pipelineSummary.f1.toFixed(4)}</Chip>
                     <Chip style={styles.kpiChip}>Recall: {pipelineSummary.recall.toFixed(4)}</Chip>
+                    <Chip style={styles.kpiChip}>Kappa: {pipelineSummary.kappa.toFixed(4)}</Chip>
                     <Chip style={styles.kpiChip}>AUC: {pipelineSummary.auc.toFixed(4)}</Chip>
                   </View>
                 ) : null}
@@ -456,43 +552,132 @@ export default function MLScreen() {
       {!loading && !error ? (
         <>
           {user?.is_admin ? (
-            <View style={[styles.layoutGrid, isLargeScreen ? styles.layoutGridLarge : null]}>
-              {groupedData.length ? (
-                <Card style={styles.chartCard} mode="contained">
+            <View style={styles.adminDashboard}>
+              <View style={[styles.chartGrid, isLargeScreen ? styles.chartGridLarge : null]}>
+                {groupedData.length ? (
+                  <Card style={[styles.chartCard, !isLargeScreen ? styles.chartCardCompact : null]} mode="contained">
+                    <Card.Content>
+                      <Text variant="titleMedium" style={styles.sectionTitle}>
+                        Distribucion por cluster
+                      </Text>
+                      <D3DonutChart
+                        data={groupedData}
+                        width={gridChartWidth}
+                        height={240}
+                      />
+                    </Card.Content>
+                  </Card>
+                ) : null}
+
+                <Card style={[styles.chartCard, !isLargeScreen ? styles.chartCardCompact : null]} mode="contained">
                   <Card.Content>
                     <Text variant="titleMedium" style={styles.sectionTitle}>
-                      Distribucion por cluster
+                      Movimientos globales
                     </Text>
-                    <PieChart
-                      data={groupedData}
-                      width={chartWidth}
-                      height={240}
-                      accessor="population"
-                      backgroundColor="transparent"
-                      paddingLeft="8"
-                      absolute
-                      chartConfig={{
-                        color: () => Colors.primary,
-                        labelColor: () => Colors.textPrimary,
-                      }}
+                    <D3BarChart
+                      data={adminMovementChart}
+                      width={gridChartWidth}
+                      height={220}
                     />
                   </Card.Content>
                 </Card>
-              ) : null}
 
-              <View style={styles.listContainer}>
-                <Card style={styles.itemCard} mode="contained">
-                  <Card.Content>
-                    <Text variant="titleMedium" style={styles.itemTitle}>
-                      Analisis unificado
-                    </Text>
-                    <Text style={styles.itemText}>{adminAnalysisText}</Text>
-                  </Card.Content>
-                </Card>
+                {adminCategoryChart.length ? (
+                  <Card style={[styles.chartCard, !isLargeScreen ? styles.chartCardCompact : null]} mode="contained">
+                    <Card.Content>
+                      <Text variant="titleMedium" style={styles.sectionTitle}>
+                        Top categorias
+                      </Text>
+                      <D3BarChart
+                        data={adminCategoryChart}
+                        width={gridChartWidth}
+                        height={220}
+                      />
+                    </Card.Content>
+                  </Card>
+                ) : null}
+
+                {adminMonthlyChart.length ? (
+                  <Card style={[styles.chartCard, !isLargeScreen ? styles.chartCardCompact : null]} mode="contained">
+                    <Card.Content>
+                      <Text variant="titleMedium" style={styles.sectionTitle}>
+                        Balance neto mensual
+                      </Text>
+                      <D3BarChart
+                        data={adminMonthlyChart}
+                        width={gridChartWidth}
+                        height={220}
+                      />
+                    </Card.Content>
+                  </Card>
+                ) : null}
               </View>
+
+              <Card style={styles.itemCard} mode="contained">
+                <Card.Content>
+                  <Text variant="titleMedium" style={styles.itemTitle}>
+                    Analisis administrativo
+                  </Text>
+                  <Text style={styles.itemText}>{adminAnalysisText}</Text>
+                  {adminInsights?.benchmark_comparison.length ? (
+                    <View style={styles.detailList}>
+                      {adminInsights.benchmark_comparison.slice(0, 4).map((item) => (
+                        <Text key={item.category_name} style={styles.detailLine}>
+                          {item.category_name}: {item.user_or_global_percentage}% vs benchmark {item.benchmark_percentage}% ({item.delta_percentage > 0 ? "+" : ""}{item.delta_percentage}%)
+                        </Text>
+                      ))}
+                    </View>
+                  ) : null}
+                </Card.Content>
+              </Card>
             </View>
           ) : (
             <View style={styles.listContainer}>
+              <View style={[styles.chartGrid, isLargeScreen ? styles.chartGridLarge : null]}>
+                <Card style={[styles.chartCard, !isLargeScreen ? styles.chartCardCompact : null]} mode="contained">
+                  <Card.Content>
+                    <Text variant="titleMedium" style={styles.sectionTitle}>
+                      Tus movimientos
+                    </Text>
+                    <D3BarChart
+                      data={userMovementChart}
+                      width={gridChartWidth}
+                      height={220}
+                    />
+                  </Card.Content>
+                </Card>
+
+                {userCategoryChart.length ? (
+                  <Card style={[styles.chartCard, !isLargeScreen ? styles.chartCardCompact : null]} mode="contained">
+                    <Card.Content>
+                      <Text variant="titleMedium" style={styles.sectionTitle}>
+                        Tus categorias principales
+                      </Text>
+                      <D3BarChart
+                        data={userCategoryChart}
+                        width={gridChartWidth}
+                        height={220}
+                      />
+                    </Card.Content>
+                  </Card>
+                ) : null}
+
+                {userMonthlyChart.length ? (
+                  <Card style={[styles.chartCard, !isLargeScreen ? styles.chartCardCompact : null]} mode="contained">
+                    <Card.Content>
+                      <Text variant="titleMedium" style={styles.sectionTitle}>
+                        Tu balance mensual
+                      </Text>
+                      <D3BarChart
+                        data={userMonthlyChart}
+                        width={gridChartWidth}
+                        height={220}
+                      />
+                    </Card.Content>
+                  </Card>
+                ) : null}
+              </View>
+
               <Card style={styles.itemCard} mode="contained">
                 <Card.Content>
                   <Text variant="titleMedium" style={styles.itemTitle}>
@@ -516,9 +701,27 @@ export default function MLScreen() {
               <Card style={styles.itemCard} mode="contained">
                 <Card.Content>
                   <Text variant="titleMedium" style={styles.itemTitle}>
-                    Analisis unificado
+                    Analisis financiero completo
                   </Text>
                   <Text style={styles.itemText}>{userAnalysisText}</Text>
+                  {userInsights?.top_categories.length ? (
+                    <View style={styles.detailList}>
+                      {userInsights.top_categories.slice(0, 5).map((item) => (
+                        <Text key={item.category_id} style={styles.detailLine}>
+                          {item.name}: {item.percentage}% del total ({item.total_amount})
+                        </Text>
+                      ))}
+                    </View>
+                  ) : null}
+                  {userInsights?.benchmark_comparison.length ? (
+                    <View style={styles.detailList}>
+                      {userInsights.benchmark_comparison.slice(0, 4).map((item) => (
+                        <Text key={item.category_name} style={styles.detailLine}>
+                          {item.category_name}: diferencia frente a referencia {item.delta_percentage > 0 ? "+" : ""}{item.delta_percentage}%
+                        </Text>
+                      ))}
+                    </View>
+                  ) : null}
                 </Card.Content>
               </Card>
             </View>
@@ -602,7 +805,11 @@ export default function MLScreen() {
               <Text style={styles.proofLine}>Filas sinteticas: {proofSnapshot.syntheticRows}</Text>
               <Text style={styles.proofLine}>F1: {proofSnapshot.f1.toFixed(4)}</Text>
               <Text style={styles.proofLine}>Recall alto riesgo: {proofSnapshot.recall.toFixed(4)}</Text>
+              <Text style={styles.proofLine}>Indice Kappa: {proofSnapshot.kappa.toFixed(4)}</Text>
               <Text style={styles.proofLine}>AUC: {proofSnapshot.auc.toFixed(4)}</Text>
+              <Text style={styles.proofLine}>
+                Weka Explorer ARFF: {proofSnapshot.wekaLatestPath || "no generado"}
+              </Text>
               <Text style={styles.proofLine}>
                 Riesgo actual: {proofSnapshot.riskLabel || "no disponible"}
                 {typeof proofSnapshot.riskProbability === "number"
@@ -689,6 +896,22 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     marginBottom: 16,
     flex: 1,
+    minWidth: 260,
+    maxWidth: 286,
+  },
+  chartCardCompact: {
+    maxWidth: "100%",
+    minWidth: 0,
+  },
+  adminDashboard: {
+    gap: 16,
+  },
+  chartGrid: {
+    gap: 16,
+  },
+  chartGridLarge: {
+    flexDirection: "row",
+    flexWrap: "wrap",
   },
   layoutGrid: {
     gap: 16,
@@ -717,6 +940,15 @@ const styles = StyleSheet.create({
   itemText: {
     color: Colors.textSecondary,
     marginBottom: 4,
+  },
+  detailList: {
+    gap: 6,
+    marginTop: 12,
+  },
+  detailLine: {
+    color: Colors.textPrimary,
+    fontSize: 14,
+    lineHeight: 20,
   },
   sectionTitle: {
     color: Colors.textPrimary,
