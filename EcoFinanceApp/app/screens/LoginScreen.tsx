@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
   Modal,
@@ -11,10 +10,6 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import Svg, { Path } from "react-native-svg";
-import Constants from "expo-constants";
-import * as WebBrowser from "expo-web-browser";
-import * as Google from "expo-auth-session/providers/google";
 import {
   HelperText,
   SegmentedButtons,
@@ -78,10 +73,8 @@ const previewSlides = [
   },
 ];
 
-WebBrowser.maybeCompleteAuthSession();
-
 export default function LoginScreen() {
-  const { signIn, signInWithGoogle, signUp } = useAuth();
+  const { signIn, signUp } = useAuth();
   const { width } = useWindowDimensions();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -92,7 +85,6 @@ export default function LoginScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
   const [resetVisible, setResetVisible] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
   const [resetPassword, setResetPassword] = useState("");
@@ -107,19 +99,6 @@ export default function LoginScreen() {
   const isCompact = width < 640;
   const isLargeScreen = width >= 980;
   const cardWidth = useMemo(() => Math.min(width - 32, 560), [width]);
-  const googleConfig = Constants.expoConfig?.extra as
-    | {
-        googleWebClientId?: string;
-        googleIosClientId?: string;
-        googleAndroidClientId?: string;
-      }
-    | undefined;
-  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-    clientId: googleConfig?.googleWebClientId,
-    webClientId: googleConfig?.googleWebClientId,
-    iosClientId: googleConfig?.googleIosClientId,
-    androidClientId: googleConfig?.googleAndroidClientId,
-  });
   const activePreview = previewSlides[previewIndex];
 
   const animatePreviewChange = (nextIndex: number) => {
@@ -171,36 +150,6 @@ export default function LoginScreen() {
 
     return () => clearInterval(interval);
   }, [previewIndex, previewOpacity, previewRotate, previewTranslate]);
-
-  React.useEffect(() => {
-    const processGoogleResponse = async () => {
-      if (response?.type !== "success") {
-        return;
-      }
-
-      const idToken = response.params?.id_token;
-      if (!idToken) {
-        setError("Google no devolvió un token válido.");
-        return;
-      }
-
-      try {
-        setGoogleLoading(true);
-        setError("");
-        await signInWithGoogle(idToken);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "No fue posible ingresar con Google."
-        );
-      } finally {
-        setGoogleLoading(false);
-      }
-    };
-
-    processGoogleResponse();
-  }, [response, signInWithGoogle]);
 
   const handleSubmit = async () => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -274,25 +223,6 @@ export default function LoginScreen() {
       setError(message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleGoogleAccess = async () => {
-    const webClientId = googleConfig?.googleWebClientId;
-    if (!webClientId || webClientId.startsWith("REPLACE_WITH_")) {
-      setError("Falta configurar el Google Web Client ID para habilitar este acceso.");
-      return;
-    }
-
-    try {
-      setError("");
-      setGoogleLoading(true);
-      await promptAsync();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No fue posible abrir Google."
-      );
-      setGoogleLoading(false);
     }
   };
 
@@ -488,7 +418,7 @@ export default function LoginScreen() {
           </Text>
           <Text style={styles.cardSubtitle}>
             {mode === "login"
-              ? "Ingresa con tu cuenta o continúa directamente con Google."
+              ? "Ingresa con tu correo y contraseña."
               : "Completa tus datos para registrarte y empieza a organizar tus finanzas."}
           </Text>
 
@@ -579,7 +509,7 @@ export default function LoginScreen() {
 
           <HelperText type="info" visible>
             {mode === "login"
-              ? "Inicia sesión con correo y contraseña, o usa el acceso directo con Google."
+              ? "Inicia sesión con correo y contraseña."
               : "Registra tu cuenta con correo, teléfono y contraseña."}
           </HelperText>
 
@@ -603,15 +533,6 @@ export default function LoginScreen() {
           <HelperText type="error" visible={Boolean(error)}>
             {error}
           </HelperText>
-
-          <GoogleButton
-            label={mode === "login" ? "Continuar con Google" : "Registrarme con Google"}
-            onPress={handleGoogleAccess}
-            loading={googleLoading}
-            disabled={!request}
-          />
-
-          <View style={styles.buttonSpacer} />
 
           <ButtonCustom
             label={mode === "login" ? "Entrar" : "Crear cuenta"}
@@ -702,60 +623,6 @@ export default function LoginScreen() {
         </View>
       </Modal>
     </KeyboardAvoidingView>
-  );
-}
-
-function GoogleButton({
-  label,
-  onPress,
-  loading,
-  disabled,
-}: {
-  label: string;
-  onPress: () => void;
-  loading?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.88}
-      onPress={onPress}
-      disabled={disabled || loading}
-      style={[
-        styles.googleButton,
-        disabled ? styles.googleButtonDisabled : null,
-      ]}
-    >
-      <View style={styles.googleContent}>
-        <GoogleMark />
-        <Text style={styles.googleButtonText}>{label}</Text>
-      </View>
-
-      {loading ? <ActivityIndicator size="small" color={Colors.primary} /> : null}
-    </TouchableOpacity>
-  );
-}
-
-function GoogleMark() {
-  return (
-    <Svg width={22} height={22} viewBox="0 0 24 24">
-      <Path
-        fill="#4285F4"
-        d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.44a5.5 5.5 0 0 1-2.39 3.61v3h3.88c2.27-2.09 3.56-5.18 3.56-8.64Z"
-      />
-      <Path
-        fill="#34A853"
-        d="M12 24c3.24 0 5.96-1.07 7.95-2.9l-3.88-3c-1.08.73-2.46 1.17-4.07 1.17-3.13 0-5.78-2.12-6.73-4.96H1.26v3.09A12 12 0 0 0 12 24Z"
-      />
-      <Path
-        fill="#FBBC05"
-        d="M5.27 14.31A7.2 7.2 0 0 1 4.89 12c0-.8.14-1.58.38-2.31V6.6H1.26A12 12 0 0 0 0 12c0 1.94.46 3.77 1.26 5.4l4.01-3.09Z"
-      />
-      <Path
-        fill="#EA4335"
-        d="M12 4.77c1.76 0 3.35.61 4.6 1.8l3.45-3.45C17.95 1.16 15.23 0 12 0A12 12 0 0 0 1.26 6.6l4.01 3.09c.95-2.84 3.6-4.92 6.73-4.92Z"
-      />
-    </Svg>
   );
 }
 

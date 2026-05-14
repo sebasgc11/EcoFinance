@@ -1,0 +1,21 @@
+% Dataset generado por EcoFinance para validacion en Weka Explorer
+% Abrir este archivo en Weka Explorer > Preprocess
+% Class attribute: target_high_risk {0,1}
+
+@relation ecofinance_risk_training
+
+@attribute expense numeric
+@attribute income numeric
+@attribute investment numeric
+@attribute tx_count numeric
+@attribute avg_amount numeric
+@attribute outflow numeric
+@attribute spend_income_ratio numeric
+@attribute net_balance numeric
+@attribute target_high_risk {0,1}
+
+@data
+1465.480000,1710.120000,58.940000,14.000000,231.038571,1524.420000,0.891411,185.700000,0
+371139.990000,1151790.610000,11400076.820000,26.000000,497038.746923,11771216.810000,10.219928,-10619426.200000,1
+1019.330000,1238.700000,184.240000,10.000000,244.227000,1203.570000,0.971640,35.130000,1
+1251051.300000,1386.020000,250247.590000,26.000000,57795.573462,1501298.890000,1083.172602,-1499912.870000,1

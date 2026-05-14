@@ -65,6 +65,15 @@ class CrispMLQService:
     def _latest_weka_arff_path(self) -> Path:
         return self.artifacts_dir / "risk_training_weka_latest.arff"
 
+    def _weka_raw_arff_path(self, run_id: str) -> Path:
+        return self.artifacts_dir / f"risk_raw_weka_{run_id}.arff"
+
+    def _latest_weka_raw_arff_path(self) -> Path:
+        return self.artifacts_dir / "risk_raw_weka_latest.arff"
+
+    def _latest_raw_csv_path(self) -> Path:
+        return self.artifacts_dir / "risk_raw_training_latest.csv"
+
     def _load_real_dataframe(self) -> pd.DataFrame:
         rows = self.ml_service.export_dataset_rows()
         if not rows:
@@ -146,7 +155,95 @@ class CrispMLQService:
 
         return data
 
-    def _write_weka_arff(self, prepared: pd.DataFrame, run_id: str) -> dict:
+    def _arff_string_value(self, value: object) -> str:
+        text = "" if value is None or pd.isna(value) else str(value)
+        return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+    def _write_weka_raw_arff(self, combined: pd.DataFrame, run_id: str) -> dict:
+        if combined.empty:
+            return {
+                "generated": False,
+                "detail": "No hay filas brutas combinadas para exportar.",
+            }
+
+        export_cols = [
+            "user_id",
+            "user_email",
+            "category_id",
+            "category_name",
+            "amount",
+            "movement_type",
+            "date",
+            "base_income",
+            "income_frequency",
+        ]
+        export_df = combined.copy()
+        for col in export_cols:
+            if col not in export_df.columns:
+                export_df[col] = None
+        export_df = export_df[export_cols]
+        numeric_cols = ["user_id", "category_id", "amount", "base_income"]
+        for col in numeric_cols:
+            export_df[col] = pd.to_numeric(export_df[col], errors="coerce").fillna(0.0)
+
+        lines = [
+            "% Filas brutas reales + sinteticas usadas para construir el entrenamiento",
+            "% Este archivo evidencia volumen de datos; el modelo entrena con el dataset preparado por usuario-mes.",
+            "",
+            "@relation ecofinance_raw_training_rows",
+            "",
+            "@attribute user_id numeric",
+            "@attribute user_email string",
+            "@attribute category_id numeric",
+            "@attribute category_name string",
+            "@attribute amount numeric",
+            "@attribute movement_type {expense,income,investment}",
+            "@attribute date string",
+            "@attribute base_income numeric",
+            "@attribute income_frequency string",
+            "",
+            "@data",
+        ]
+
+        for _, row in export_df.iterrows():
+            movement_type = str(row["movement_type"] or "expense")
+            if movement_type not in {"expense", "income", "investment"}:
+                movement_type = "expense"
+            values = [
+                f"{float(row['user_id']):.0f}",
+                self._arff_string_value(row["user_email"]),
+                f"{float(row['category_id']):.0f}",
+                self._arff_string_value(row["category_name"]),
+                f"{float(row['amount']):.6f}",
+                movement_type,
+                self._arff_string_value(row["date"]),
+                f"{float(row['base_income']):.6f}",
+                self._arff_string_value(row["income_frequency"]),
+            ]
+            lines.append(",".join(values))
+
+        content = "\n".join(lines) + "\n"
+        raw_versioned_path = self._weka_raw_arff_path(run_id)
+        raw_latest_path = self._latest_weka_raw_arff_path()
+        raw_csv_path = self._latest_raw_csv_path()
+        raw_versioned_path.write_text(content, encoding="utf-8")
+        raw_latest_path.write_text(content, encoding="utf-8")
+        export_df.to_csv(raw_csv_path, index=False, encoding="utf-8")
+
+        return {
+            "generated": True,
+            "rows": int(len(export_df)),
+            "versioned_path": str(raw_versioned_path),
+            "latest_path": str(raw_latest_path),
+            "latest_csv_path": str(raw_csv_path),
+        }
+
+    def _write_weka_arff(
+        self,
+        prepared: pd.DataFrame,
+        run_id: str,
+        combined: pd.DataFrame | None = None,
+    ) -> dict:
         feature_cols = [
             "expense",
             "income",
@@ -193,6 +290,10 @@ class CrispMLQService:
         latest_path = self._latest_weka_arff_path()
         versioned_path.write_text(content, encoding="utf-8")
         latest_path.write_text(content, encoding="utf-8")
+        raw_export = self._write_weka_raw_arff(
+            combined if combined is not None else pd.DataFrame(),
+            run_id,
+        )
 
         return {
             "generated": True,
@@ -201,13 +302,18 @@ class CrispMLQService:
             "relation": "ecofinance_risk_training",
             "class_attribute": "target_high_risk",
             "rows": int(len(export_df)),
+            "prepared_rows": int(len(export_df)),
+            "raw_rows": raw_export.get("rows", 0),
             "versioned_path": str(versioned_path),
             "latest_path": str(latest_path),
+            "raw_latest_path": raw_export.get("latest_path"),
+            "raw_latest_csv_path": raw_export.get("latest_csv_path"),
             "instructions": [
                 "Abrir Weka Explorer.",
                 "Ir a Preprocess y cargar risk_training_weka_latest.arff.",
                 "En Classify, seleccionar target_high_risk como clase.",
                 "Comparar el valor Kappa statistic con el quality gate del proyecto.",
+                "Para evidenciar todas las filas brutas usadas, abrir risk_raw_weka_latest.arff o risk_raw_training_latest.csv.",
             ],
         }
 
@@ -252,7 +358,7 @@ class CrispMLQService:
         synthetic_users: int,
         synthetic_months: int,
         seed: int,
-    ) -> tuple[dict, pd.DataFrame]:
+    ) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
         real_df = self._load_real_dataframe()
         frames = [real_df]
 
@@ -287,6 +393,7 @@ class CrispMLQService:
                 ],
             },
             prepared,
+            combined,
         )
 
     def _compute_metrics(self, y_true: pd.Series, y_pred: np.ndarray, y_prob: np.ndarray) -> dict:
@@ -621,13 +728,13 @@ class CrispMLQService:
         real_df = self._load_real_dataframe()
         phase_1 = self._phase_business_data_understanding(real_df)
 
-        phase_2, prepared = self._phase_data_engineering(
+        phase_2, prepared, combined = self._phase_data_engineering(
             include_synthetic=include_synthetic,
             synthetic_users=synthetic_users,
             synthetic_months=synthetic_months,
             seed=seed,
         )
-        weka_export = self._write_weka_arff(prepared, run_id)
+        weka_export = self._write_weka_arff(prepared, run_id, combined)
 
         phase_3, model, eval_payload = self._phase_model_engineering(prepared)
         phase_4, metrics = self._phase_model_evaluation(model, eval_payload)
@@ -684,6 +791,12 @@ class CrispMLQService:
                 "relation": "ecofinance_risk_training",
                 "class_attribute": "target_high_risk",
                 "latest_path": str(self._latest_weka_arff_path()),
+                "raw_latest_path": str(self._latest_weka_raw_arff_path())
+                if self._latest_weka_raw_arff_path().exists()
+                else None,
+                "raw_latest_csv_path": str(self._latest_raw_csv_path())
+                if self._latest_raw_csv_path().exists()
+                else None,
                 "instructions": [
                     "Abrir Weka Explorer.",
                     "Ir a Preprocess y cargar risk_training_weka_latest.arff.",

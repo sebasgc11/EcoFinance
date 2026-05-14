@@ -431,6 +431,10 @@ export default function HomeScreen() {
       onPress: () => navigation.navigate("History"),
     },
     {
+      icon: "brain",
+      onPress: () => navigation.navigate("ML"),
+    },
+    {
       icon: "cash-plus",
       onPress: () => navigation.navigate("Expense"),
     },

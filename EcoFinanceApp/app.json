@@ -49,7 +49,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "extra": {
       "googleWebClientId": "REPLACE_WITH_GOOGLE_WEB_CLIENT_ID",

@@ -64,6 +64,8 @@ type ProofSnapshot = {
   kappa: number;
   auc: number;
   wekaLatestPath?: string;
+  wekaRawLatestPath?: string;
+  wekaRawCsvPath?: string;
   riskLabel?: string;
   riskProbability?: number | null;
 };
@@ -102,6 +104,14 @@ function buildProofSnapshot(
     wekaLatestPath:
       typeof (report.weka_explorer as Record<string, unknown> | undefined)?.latest_path === "string"
         ? String((report.weka_explorer as Record<string, unknown>).latest_path)
+        : undefined,
+    wekaRawLatestPath:
+      typeof (report.weka_explorer as Record<string, unknown> | undefined)?.raw_latest_path === "string"
+        ? String((report.weka_explorer as Record<string, unknown>).raw_latest_path)
+        : undefined,
+    wekaRawCsvPath:
+      typeof (report.weka_explorer as Record<string, unknown> | undefined)?.raw_latest_csv_path === "string"
+        ? String((report.weka_explorer as Record<string, unknown>).raw_latest_csv_path)
         : undefined,
     riskLabel: risk?.risk_label || undefined,
     riskProbability: risk?.risk_probability,
@@ -808,7 +818,13 @@ export default function MLScreen() {
               <Text style={styles.proofLine}>Indice Kappa: {proofSnapshot.kappa.toFixed(4)}</Text>
               <Text style={styles.proofLine}>AUC: {proofSnapshot.auc.toFixed(4)}</Text>
               <Text style={styles.proofLine}>
-                Weka Explorer ARFF: {proofSnapshot.wekaLatestPath || "no generado"}
+                Weka entrenamiento preparado: {proofSnapshot.wekaLatestPath || "no generado"}
+              </Text>
+              <Text style={styles.proofLine}>
+                Weka filas brutas: {proofSnapshot.wekaRawLatestPath || "no generado"}
+              </Text>
+              <Text style={styles.proofLine}>
+                CSV bruto completo: {proofSnapshot.wekaRawCsvPath || "no generado"}
               </Text>
               <Text style={styles.proofLine}>
                 Riesgo actual: {proofSnapshot.riskLabel || "no disponible"}
