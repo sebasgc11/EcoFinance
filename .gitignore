@@ -13,3 +13,5 @@ EcoFinanceApp/deploy-web/
 Thumbs.db
 
 *.log
+
+db_exports/

@@ -27,7 +27,6 @@ services:
     name: ecofinance-web
     runtime: static
     rootDir: EcoFinanceApp
-    plan: free
     buildCommand: npm install && npm run build:web
     staticPublishPath: EcoFinanceApp/deploy-web
     envVars:
