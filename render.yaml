@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: ecofinance-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: APP_SECRET
+        generateValue: true
+      - key: DB_FALLBACK_TO_SQLITE
+        value: "false"
+      - key: BACKEND_CORS_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        sync: false
+
+  - type: web
+    name: ecofinance-web
+    runtime: static
+    rootDir: EcoFinanceApp
+    plan: free
+    buildCommand: npm install && npm run build:web
+    staticPublishPath: EcoFinanceApp/deploy-web
+    envVars:
+      - key: EXPO_PUBLIC_API_URL
+        sync: false
