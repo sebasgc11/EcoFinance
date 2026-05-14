@@ -39,6 +39,20 @@ class Settings:
     PASSWORD_RESET_EXPIRE_MINUTES: int = int(
         os.getenv("PASSWORD_RESET_EXPIRE_MINUTES", "10")
     )
+    BACKEND_CORS_ORIGINS: str = os.getenv("BACKEND_CORS_ORIGINS", "")
+
+    @property
+    def cors_origins(self) -> list[str]:
+        origins = [
+            "http://localhost:8081",
+            "http://127.0.0.1:8081",
+        ]
+        extra_origins = [
+            origin.strip()
+            for origin in self.BACKEND_CORS_ORIGINS.split(",")
+            if origin.strip()
+        ]
+        return origins + extra_origins
 
     @property
     def database_url(self) -> str:

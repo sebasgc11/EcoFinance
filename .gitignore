@@ -6,6 +6,8 @@ __pycache__/
 EcoFinanceApp/node_modules/
 EcoFinanceApp/.expo/
 EcoFinanceApp/dist/
+EcoFinanceApp/web-dist/
+EcoFinanceApp/deploy-web/
 
 .DS_Store
 Thumbs.db
